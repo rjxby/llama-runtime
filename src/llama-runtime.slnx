@@ -1,0 +1,11 @@
+<Solution>
+  <Project Path="LlamaRuntime.Benchmarks/LlamaRuntime.Benchmarks.csproj" />
+  <Project Path="LlamaRuntime.Common.Tests/LlamaRuntime.Common.Tests.csproj" />
+  <Project Path="LlamaRuntime.Engine.Contracts/LlamaRuntime.Engine.Contracts.csproj" />
+  <Project Path="LlamaRuntime.Engine.Tests/LlamaRuntime.Engine.Tests.csproj" />
+  <Project Path="LlamaRuntime.Engine/LlamaRuntime.Engine.csproj" />
+  <Project Path="LlamaRuntime.Native.Contracts/LlamaRuntime.Native.Contracts.csproj" />
+  <Project Path="LlamaRuntime.Native/LlamaRuntime.Native.csproj" />
+  <Project Path="LlamaRuntime.Presentation.Grpc.Tests/LlamaRuntime.Presentation.Grpc.Tests.csproj" />
+  <Project Path="LlamaRuntime.Presentation.Grpc/LlamaRuntime.Presentation.Grpc.csproj" />
+</Solution>
