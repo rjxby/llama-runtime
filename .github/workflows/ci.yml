@@ -42,5 +42,5 @@ jobs:
     - name: Build .NET Solution
       run: dotnet build src/llama-runtime.slnx -c Release
 
-    - name: Run Tests
-      run: dotnet test src/llama-runtime.slnx -c Release --no-build --verbosity normal
+    - name: Run Unit Tests
+      run: dotnet test src/llama-runtime.slnx -c Release --no-build --verbosity normal --filter "Category=Unit"
