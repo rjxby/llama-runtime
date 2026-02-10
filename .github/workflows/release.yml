@@ -32,7 +32,12 @@ jobs:
     - name: Publish gRPC Runtime
       run: |
         make llama-runtime-grpc-build
-        # The makefile outputs to build/llama-runtime-grpc
+
+        mkdir -p build/llama-runtime-grpc/native
+
+        cp native/build/libllama_adapter.dylib \
+          build/llama-runtime-grpc/native/
+
         cd build/llama-runtime-grpc
         tar -czf ../../llama-runtime-grpc-osx-arm64.tar.gz .
 
