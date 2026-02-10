@@ -38,6 +38,9 @@ jobs:
         cp native/build/libllama_adapter.dylib \
           build/llama-runtime-grpc/native/
 
+        cp vendor/llama/b7932/macos-arm64/llama-b7932/*.dylib build/llama-runtime-grpc/native/
+        cp vendor/llama/b7932/macos-arm64/llama-b7932/LICENSE build/llama-runtime-grpc/native/
+
         cd build/llama-runtime-grpc
         tar -czf ../../llama-runtime-grpc-osx-arm64.tar.gz .
 
