@@ -4,14 +4,46 @@ A native-first, secure, **gRPC-based LLM inference runtime** built on top of `ll
 
 ---
 
+## Table of contents
+
+* [Overview](#overview)
+* [Features](#features)
+* [Architecture](#architecture)
+* [Quickstart](#quickstart)
+
+  * [Prerequisites](#prerequisites)
+  * [Initialize dependencies](#initialize-dependencies)
+  * [Build the runtime](#build-the-runtime)
+  * [Run from source](#run-from-source)
+* [Running a release (binary distribution)](#running-a-release-binary-distribution)
+
+  * [macOS Gatekeeper / Quarantine note](#macos-gatekeeper--quarantine-note)
+* [Benchmarking](#benchmarking)
+* [Configuration](#configuration)
+* [Troubleshooting & tips](#troubleshooting--tips)
+* [Contributing](#contributing)
+* [License & third-party](#license--third-party)
+
+---
+
 ## Overview
 
-`llama-runtime` is a high-performance inference server designed for local and edge deployments.
-It combines the raw speed of `llama.cpp` with a production-ready **gRPC runtime** called:
+`llama-runtime` is a high-performance inference server designed for local and edge deployments. It pairs the raw performance of `llama.cpp` with a production-ready, single-file **gRPC runtime**:
 
 > **`llama-runtime-grpc`**
 
-This makes it easy to embed LLM inference into .NET or polyglot systems with strong typing, low latency, and predictable performance.
+This runtime makes it straightforward to embed LLM inference into .NET and polyglot systems with strong typing, low latency, and predictable performance.
+
+---
+
+## Features
+
+* **Native-first** — direct integration with `llama.cpp` for maximum inference performance.
+* **gRPC runtime** — single-file, self-contained `llama-runtime-grpc` built on .NET 10.
+* **Secure by default** — API key authentication and environment-based configuration.
+* **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
+* **Cross-platform** — macOS (Apple Silicon) and Linux supported.
+* **Production-oriented** — request queueing, predictable memory usage, and strong contracts.
 
 ---
 
@@ -26,28 +58,16 @@ llama.cpp (C/C++)
 
 ---
 
-## Key Features
+## Quickstart
 
-- **Native-First** — Direct integration with `llama.cpp`
-- **llama-runtime-grpc** — Single-file, self-contained gRPC runtime
-- **Secure by Default** — API key auth & environment-based config
-- **Benchmarking Built In** — Compare REST vs gRPC performance
-- **Cross-Platform** — macOS (Apple Silicon) & Linux
+### Prerequisites
 
----
+* .NET 10 SDK
+* CMake (≥ 3.14)
+* C/C++ toolchain (Clang / GCC / MSVC)
+* Standard tools: `curl`, `tar`, `unzip`
 
-## Prerequisites
-
-- **.NET 10 SDK**
-- **CMake ≥ 3.14**
-- **C/C++ Toolchain** (Clang / GCC / MSVC)
-- **Standard tools**: `curl`, `tar`, `unzip`
-
----
-
-## Getting Started
-
-### 1. Initialize Dependencies
+### 1. Initialize dependencies
 
 Downloads headers and platform-specific `llama.cpp` binaries.
 
@@ -55,82 +75,109 @@ Downloads headers and platform-specific `llama.cpp` binaries.
 make init
 ```
 
----
-
-### 2. Build the Runtime
+### 2. Build the runtime
 
 ```bash
 make runtime
 ```
 
-This produces a **portable distribution package**:
+This produces a portable distribution package under `dist/`, for example:
 
 ```
 dist/
-├── LlamaRuntime.Presentation.Grpc (Executable)
-├── libllama_adapter.dylib (Native Adapter)
-├── libllama.dylib (Vendor Libs)
+├── LlamaRuntime.Presentation.Grpc (executable)
+├── libllama_adapter.dylib (native adapter)
+├── libllama.dylib (vendor libs)
 ├── LICENSE
 └── ...
 ```
 
----
-
-### 3. Run from Source
+### 3. Run from source
 
 ```bash
 make run-dist
 ```
 
-> Ensure your model exists at `models/llama.bin` (relative to root)
-> (or override `MODEL_PATH` in `.env`)
+By default the runtime looks for a model at `models/llama.bin` (relative to repository root). You can override the model path using an environment variable or your `.env` file:
+
+```bash
+# example override
+MODEL_PATH=/absolute/path/to/your/model.guff make run-dist
+```
 
 ---
 
-## Running a Release
+## Running a release (binary distribution)
 
-If you downloaded a release artifact (e.g., `llama-runtime-grpc-osx-arm64.tar.gz`):
+If you downloaded a release artifact (example: `llama-runtime-grpc-osx-arm64.tar.gz`), follow these steps:
 
-1. **Extract the archive**:
-   ```bash
-   mkdir llama-runtime && tar -xf llama-runtime-grpc-osx-arm64.tar.gz -C llama-runtime
-   cd llama-runtime
-   ```
+1. **Extract the archive**
 
-2. **Prepare Model**:
-   Place your GGUF model file (e.g., `llama.bin`) in a `models` directory or configure the path.
+```bash
+mkdir llama-runtime && tar -xf llama-runtime-grpc-osx-arm64.tar.gz -C llama-runtime
+cd llama-runtime
+```
 
-3. **Run**:
-   ```bash
-   # Example with environment variable for model path
-   Llama__Native__ModelPath="/abs/path/to/model.bin" ./LlamaRuntime.Presentation.Grpc
-   ```
+2. **Prepare model directory**
+
+Place your GGUF model file (for example `model.gguf`) inside a `models` directory or point the runtime at an absolute path.
+
+3. **Make the runtime executable (if needed)**
+
+```bash
+chmod +x ./LlamaRuntime.Presentation.Grpc
+```
+
+4. **Run**
+
+```bash
+# example using an environment variable
+HostedModel__ModelPath="/abs/path/to/model.gguf" ./LlamaRuntime.Presentation.Grpc
+```
+
+### macOS Gatekeeper / Quarantine note
+
+macOS may mark downloaded files as quarantined which prevents them from running immediately (Gatekeeper). If macOS blocks the binaries, remove the quarantine attribute from the extracted files or folder:
+
+```bash
+# remove quarantine recursively from the directory
+xattr -rd com.apple.quarantine ./llama-runtime
+
+# or for a single executable
+xattr -rd com.apple.quarantine ./LlamaRuntime.Presentation.Grpc
+```
+
+After clearing quarantine, re-run `chmod +x` if necessary and execute the binary. Use this only for artifacts you trust.
+
+---
 
 ## Benchmarking
 
-### gRPC Runtime
+### gRPC runtime
 
 ```bash
 make bench-llama-runtime-grpc
 ```
 
-### llama.cpp REST (baseline)
+### `llama.cpp` REST (baseline)
 
 ```bash
 make run-llama-rest-server
 make bench-llama-rest
 ```
 
+Benchmarks include latency and throughput comparisons. Use them to validate improvements or sizing decisions for edge deployments.
+
 ---
 
-## Environment Configuration
+## Configuration
 
-All required variables live in platform-specific env files:
+All required environment variables live in platform-specific env files:
 
-- `.env.macos`
-- `.env.linux`
+* `.env.macos`
+* `.env.linux`
 
-Required:
+Example `.env` values (required):
 
 ```env
 PLATFORM=macos-arm64
@@ -139,24 +186,41 @@ DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
 ```
 
+You can also supply configuration via standard environment variables at runtime or a `.env` file loader in your process.
+
 ---
 
-## License
+## Troubleshooting & tips
 
-MIT License — see [LICENSE](LICENSE)
+* **Model not found** — ensure `HostedModel__ModelPath` points to an existing GGUF file or place `model.gguf` inside `models/`.
+* **macOS: permission denied / quarantined** — see the macOS Gatekeeper section above.
+* **High memory usage** — reduce batch sizes or limit concurrency in the runtime configuration.
+* **Logs** — the runtime emits structured logs. Check stdout/stderr for the runtime and native adapter logs.
 
-### Third-Party
+If you hit an obscure issue, include the `dotnet` runtime logs and the native adapter stderr when filing an issue.
 
-- **llama.cpp** — MIT
-  © Georgi Gerganov & contributors
-  https://github.com/ggml-org/llama.cpp
+---
+
+## Contributing
+
+Contributions are welcome. Please open an issue for discussion before starting work on a major change. Follow the existing code style and add tests where applicable.
+
+---
+
+## License & third-party
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE).
+
+Third-party notices:
+
+* **llama.cpp** — MIT. © Georgi Gerganov & contributors. [https://github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
 
 ---
 
 ## Why gRPC?
 
-- **Strong contracts** — Type-safe, well-defined service interfaces
-- **First-class .NET support** — Native integration with ASP.NET Core
-- **Stable inference on limited resources** — Built-in request queue prevents memory exhaustion and ensures predictable performance under load
+* **Strong contracts** — type-safe, well-defined service interfaces.
+* **First-class .NET support** — native integration with ASP.NET Core.
+* **Stable inference on limited resources** — request queueing prevents memory exhaustion and yields predictable performance under load.
 
-This runtime is designed to be **boring and fast**.
+This runtime is intentionally **boring and fast** — optimized for reliability and predictable latency in edge and local deployments.

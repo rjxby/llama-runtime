@@ -198,7 +198,7 @@ pack: native-build llama-runtime-grpc-build
 	cp -R $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/lib*.so $(PACKAGE_DIR)/ 2>/dev/null || true
 	@echo ">>> Copying licenses..."
 	cp LICENSE $(PACKAGE_DIR)/ 2>/dev/null || true
-	cp $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/LICENSE $(PACKAGE_DIR)/LICENSE 2>/dev/null || true
+	cp $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/LICENSE $(PACKAGE_DIR)/LICENSE-llama 2>/dev/null || true
 	@echo ">>> Package created in $(PACKAGE_DIR)"
 
 llama-runtime-grpc-run: pack
