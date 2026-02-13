@@ -75,10 +75,10 @@ Downloads headers and platform-specific `llama.cpp` binaries.
 make init
 ```
 
-### 2. Build the runtime
+### 2. Build the package
 
 ```bash
-make runtime
+make pack
 ```
 
 This produces a portable distribution package under `dist/`, for example:
@@ -95,14 +95,14 @@ dist/
 ### 3. Run from source
 
 ```bash
-make init && make llama-runtime-grpc-run
+make llama-runtime-grpc-run
 ```
 
-By default the runtime looks for a model at `models/llama.bin` (relative to repository root). You can override the model path using an environment variable or your `.env` file:
+You can set the model path using an environment variable or your `.env` file:
 
 ```bash
 # example override
-MODEL_PATH=/absolute/path/to/your/model.guff make llama-runtime-grpc-run
+HostedModel__ModelPath=/absolute/path/to/your/model.guff make llama-runtime-grpc-run
 ```
 
 ---
@@ -194,7 +194,6 @@ You can also supply configuration via standard environment variables at runtime 
 
 * **Model not found** — ensure `HostedModel__ModelPath` points to an existing GGUF file or place `model.gguf` inside `models/`.
 * **macOS: permission denied / quarantined** — see the macOS Gatekeeper section above.
-* **High memory usage** — reduce batch sizes or limit concurrency in the runtime configuration.
 * **Logs** — the runtime emits structured logs. Check stdout/stderr for the runtime and native adapter logs.
 
 If you hit an obscure issue, include the `dotnet` runtime logs and the native adapter stderr when filing an issue.
