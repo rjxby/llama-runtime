@@ -88,8 +88,7 @@ BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems.
 # gRPC runtime config
 # ------------------------------------------------------------
 LLAMA_RUNTIME_GRPC_PROJECT := src/LlamaRuntime.Presentation.Grpc
-LLAMA_RUNTIME_GRPC_BIN := llama-runtime-grpc
-LLAMA_RUNTIME_GRPC_OUT := build/$(LLAMA_RUNTIME_GRPC_BIN)
+PACKAGE_DIR := dist
 
 # ------------------------------------------------------------
 # Phony targets
@@ -189,10 +188,21 @@ llama-runtime-grpc-build:
 		/p:EnableCompressionInSingleFile=true \
 		/p:DebugType=None \
 		/p:DebugSymbols=false \
-		-o $(LLAMA_RUNTIME_GRPC_OUT)
+		-o $(PACKAGE_DIR)
 
-run-llama-runtime-grpc: native-build llama-runtime-grpc-build
-	cd $(LLAMA_RUNTIME_GRPC_OUT) && \
+pack: native-build llama-runtime-grpc-build
+	@echo ">>> Copying native adapter..."
+	cp -R native/build/libllama_adapter.* $(PACKAGE_DIR)/
+	@echo ">>> Copying vendor libraries..."
+	cp -R $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/lib*.dylib $(PACKAGE_DIR)/ 2>/dev/null || true
+	cp -R $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/lib*.so $(PACKAGE_DIR)/ 2>/dev/null || true
+	@echo ">>> Copying licenses..."
+	cp LICENSE $(PACKAGE_DIR)/ 2>/dev/null || true
+	cp $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/LICENSE $(PACKAGE_DIR)/LICENSE-llama 2>/dev/null || true
+	@echo ">>> Package created in $(PACKAGE_DIR)"
+
+llama-runtime-grpc-run: pack
+	cd $(PACKAGE_DIR) && \
 	ASPNETCORE_ENVIRONMENT=Development \
 	Logging__LogLevel__Default=Warning \
 	./LlamaRuntime.Presentation.Grpc
@@ -220,21 +230,4 @@ bench-llama-rest:
 # Clean
 # ------------------------------------------------------------
 clean:
-	$(RM) $(VENDOR_DIR) $(CMAKE_BUILD_DIR) build
-
-# ------------------------------------------------------------
-# Help
-# ------------------------------------------------------------
-help:
-	@echo "Llama Runtime Makefile"
-	@echo "----------------------"
-	@echo ""
-	@echo "Core:"
-	@echo "  make init"
-	@echo "  make native-build"
-	@echo "  make llama-runtime-grpc-build"
-	@echo "  make run-llama-runtime-grpc"
-	@echo ""
-	@echo "Benchmarks:"
-	@echo "  make bench-llama-runtime-grpc"
-	@echo "  make bench-llama-rest"
+	$(RM) $(VENDOR_DIR) $(CMAKE_BUILD_DIR) $(PACKAGE_DIR)

@@ -44,3 +44,4 @@ appsettings.Development.json
 vendor/
 build/
 models/
+dist/
