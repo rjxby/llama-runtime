@@ -60,27 +60,51 @@ make init
 ### 2. Build the Runtime
 
 ```bash
-make llama-runtime-grpc-build
+make runtime
 ```
 
-This produces a **single self-contained binary**:
+This produces a **portable distribution package**:
 
 ```
-build/llama-runtime-grpc
+dist/
+├── LlamaRuntime.Presentation.Grpc (Executable)
+├── libllama_adapter.dylib (Native Adapter)
+├── libllama.dylib (Vendor Libs)
+├── LICENSE
+└── ...
 ```
 
 ---
 
-### 3. Run the Server
+### 3. Run from Source
 
 ```bash
-make run-llama-runtime-grpc
+make run-dist
 ```
 
-> Ensure your model exists at `models/llama.bin`
+> Ensure your model exists at `models/llama.bin` (relative to root)
 > (or override `MODEL_PATH` in `.env`)
 
 ---
+
+## Running a Release
+
+If you downloaded a release artifact (e.g., `llama-runtime-grpc-osx-arm64.tar.gz`):
+
+1. **Extract the archive**:
+   ```bash
+   mkdir llama-runtime && tar -xf llama-runtime-grpc-osx-arm64.tar.gz -C llama-runtime
+   cd llama-runtime
+   ```
+
+2. **Prepare Model**:
+   Place your GGUF model file (e.g., `llama.bin`) in a `models` directory or configure the path.
+
+3. **Run**:
+   ```bash
+   # Example with environment variable for model path
+   Llama__Native__ModelPath="/abs/path/to/model.bin" ./LlamaRuntime.Presentation.Grpc
+   ```
 
 ## Benchmarking
 

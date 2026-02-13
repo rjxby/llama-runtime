@@ -29,20 +29,11 @@ jobs:
     - name: Build Native Adapter
       run: make native-build
 
-    - name: Publish gRPC Runtime
+    - name: Build Runtime Package
       run: |
-        make llama-runtime-grpc-build
-
-        mkdir -p build/llama-runtime-grpc/native
-
-        cp native/build/libllama_adapter.dylib \
-          build/llama-runtime-grpc/native/
-
-        cp vendor/llama/b7932/macos-arm64/llama-b7932/*.dylib build/llama-runtime-grpc/native/
-        cp vendor/llama/b7932/macos-arm64/llama-b7932/LICENSE build/llama-runtime-grpc/native/
-
-        cd build/llama-runtime-grpc
-        tar -czf ../../llama-runtime-grpc-osx-arm64.tar.gz .
+        make pack
+        cd dist
+        tar -czf ../llama-runtime-grpc-osx-arm64.tar.gz .
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
