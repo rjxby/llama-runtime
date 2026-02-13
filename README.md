@@ -95,14 +95,14 @@ dist/
 ### 3. Run from source
 
 ```bash
-make run-dist
+make init && make llama-runtime-grpc-run
 ```
 
 By default the runtime looks for a model at `models/llama.bin` (relative to repository root). You can override the model path using an environment variable or your `.env` file:
 
 ```bash
 # example override
-MODEL_PATH=/absolute/path/to/your/model.guff make run-dist
+MODEL_PATH=/absolute/path/to/your/model.guff make llama-runtime-grpc-run
 ```
 
 ---
