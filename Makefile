@@ -191,20 +191,16 @@ llama-runtime-grpc-build:
 		-o $(PACKAGE_DIR)
 
 pack: native-build llama-runtime-grpc-build
-	@echo ">>> Copying native adapter..."
-	cp -R native/build/libllama_adapter.* $(PACKAGE_DIR)/
-	@echo ">>> Copying vendor libraries..."
-	cp -R $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/lib*.dylib $(PACKAGE_DIR)/ 2>/dev/null || true
-	cp -R $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/lib*.so $(PACKAGE_DIR)/ 2>/dev/null || true
+	@echo ">>> Copying native adapter and dependencies..."
+	cp -R native/build/lib* $(PACKAGE_DIR)/
 	@echo ">>> Copying licenses..."
-	cp LICENSE $(PACKAGE_DIR)/ 2>/dev/null || true
-	cp $(VENDOR_PATH)/llama-$(LLAMA_VERSION)/LICENSE $(PACKAGE_DIR)/LICENSE-llama 2>/dev/null || true
+	cp native/build/LICENSE* $(PACKAGE_DIR)/
 	@echo ">>> Package created in $(PACKAGE_DIR)"
 
 llama-runtime-grpc-run: pack
 	cd $(PACKAGE_DIR) && \
 	ASPNETCORE_ENVIRONMENT=Development \
-	Logging__LogLevel__Default=Warning \
+	Logging__LogLevel__Default=Debug \
 	./LlamaRuntime.Presentation.Grpc
 
 # ------------------------------------------------------------

@@ -3,7 +3,7 @@ using LlamaRuntime.Native.Contracts;
 
 namespace LlamaRuntime.Engine;
 
-internal sealed class EngineModel : IEngineModel
+public sealed class EngineModel : IEngineModel
 {
     public string Id { get; }
     internal LlamaModelHandle NativeModelHandle { get; }

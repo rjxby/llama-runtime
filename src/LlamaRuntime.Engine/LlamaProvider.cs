@@ -1,9 +1,6 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
-using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Native.Contracts;
 
 namespace LlamaRuntime.Engine;
@@ -11,16 +8,15 @@ namespace LlamaRuntime.Engine;
 public sealed class LlamaProvider : ILlamaProvider
 {
     private readonly ILlamaNative _native;
+    private readonly ILlamaContextManager _contextManager;
     private readonly ILogger<LlamaProvider> _logger;
-    private readonly int _defaultPoolSize;
-    private readonly ConcurrentDictionary<IEngineModel, ContextPool> _pools = new();
     private bool _disposed;
 
-    public LlamaProvider(ILlamaNative native, IOptions<LlamaProviderOptions> options, ILogger<LlamaProvider> logger)
+    public LlamaProvider(ILlamaNative native, ILlamaContextManager contextManager, ILogger<LlamaProvider> logger)
     {
         _native = native ?? throw new ArgumentNullException(nameof(native));
+        _contextManager = contextManager ?? throw new ArgumentNullException(nameof(contextManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _defaultPoolSize = options?.Value?.DefaultPoolSize ?? 1;
     }
 
     public async Task<IEngineModel> LoadModelAsync(string path, CancellationToken cancellationToken = default)
@@ -40,9 +36,7 @@ public sealed class LlamaProvider : ILlamaProvider
         }
 
         var model = new EngineModel(path, modelHandle);
-        var pool = new ContextPool(_native, modelHandle, _defaultPoolSize, _logger);
-        _pools[model] = pool;
-        _logger.LogInformation("Model loaded and pool created (path={Path})", path);
+        _logger.LogInformation("Model loaded (path={Path})", path);
         return model;
     }
 
@@ -51,10 +45,7 @@ public sealed class LlamaProvider : ILlamaProvider
         ThrowIfDisposed();
         if (model == null) return;
 
-        if (_pools.TryRemove(model, out var pool))
-        {
-            try { pool.Dispose(); } catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing context pool for model {Model}", model.Id); }
-        }
+        _contextManager.ReleaseModelResources(model);
 
         try { await Task.Run(() => model.Dispose(), cancellationToken).ConfigureAwait(false); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing model {Model}", model.Id); }
@@ -64,58 +55,22 @@ public sealed class LlamaProvider : ILlamaProvider
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
-        if (prompt == null) throw new ArgumentNullException(nameof(prompt));
 
-        if (!_pools.TryGetValue(model, out var pool))
-            throw new ModelNotFoundException($"Model {model.Id} is not loaded in provider");
+        await using var session = await CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
+        return await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+    }
 
-        LlamaContextHandle ctx = null!;
-        try
+    public async Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        if (model == null) throw new ArgumentNullException(nameof(model));
+
+        if (_contextManager is IInferenceSessionFactory factory)
         {
-            ctx = await pool.AcquireAsync(cancellationToken).ConfigureAwait(false);
+            return await factory.CreateSessionAsync(model, ct).ConfigureAwait(false);
+        }
 
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var em = model as EngineModel ?? throw new InvalidOperationException("unexpected model type");
-
-            var result = await Task.Run(() =>
-            {
-                try
-                {
-                    return _native.Infer(em.NativeModelHandle, ctx, prompt);
-                }
-                catch (Exception ex)
-                {
-                    throw new InferenceException("Native inference failed", ex);
-                }
-            }).ConfigureAwait(false);
-
-            return result;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (InferenceException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new InferenceException("Inference failed", ex);
-        }
-        finally
-        {
-            if (ctx != null)
-            {
-                try { pool.Release(ctx); }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed returning context to pool for model {Model}", model.Id);
-                    try { ctx.Dispose(); } catch { }
-                }
-            }
-        }
+        throw new NotSupportedException("The context manager does not support sessions.");
     }
 
     private void ThrowIfDisposed()
@@ -127,13 +82,5 @@ public sealed class LlamaProvider : ILlamaProvider
     {
         if (_disposed) return;
         _disposed = true;
-
-        foreach (var kv in _pools)
-        {
-            try { kv.Value.Dispose(); } catch { }
-            try { kv.Key.Dispose(); } catch { }
-        }
-
-        _pools.Clear();
     }
 }

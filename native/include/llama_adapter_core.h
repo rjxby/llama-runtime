@@ -22,38 +22,46 @@ struct GenParams {
   int max_new_tokens = 128;
 };
 
-class Adapter {
+class Model {
 public:
-  Adapter() noexcept;
-  ~Adapter() noexcept;
+  Model() noexcept = default;
+  ~Model() noexcept;
 
-  // Model lifecycle
-  Error load_model(const char *path);
-  Error create_context(); // creates ctx_ from model_ using default params
-  void free_context();
-  void free_model();
+  Error load(const char *path);
+  void free();
 
-  // Basic operations
+  llama_model *handle() const { return model_; }
+  const llama_vocab *vocab() const { return llama_model_get_vocab(model_); }
+
+private:
+  llama_model *model_ = nullptr;
+};
+
+class Context {
+public:
+  Context(Model *model) noexcept;
+  ~Context() noexcept;
+
+  Error init(int n_ctx, int n_batch);
+  void free();
+  void reset();
+
   bool tokenize(const char *prompt, std::vector<llama_token> &tokens);
   bool decode(const std::vector<llama_token> &tokens);
   bool generate(std::string &out, size_t limit, const GenParams &params);
 
-  // Convenience wrapper
   Error infer(const char *prompt, char *out, size_t out_size,
               const GenParams &params);
 
-  // Helper to find meta.json
-  static bool find_meta_json(std::string &result);
-
 private:
-  void reset();
-
-  llama_model *model_ = nullptr;
+  Model *model_ref_ = nullptr;
   llama_context *ctx_ = nullptr;
-  llama_context_params ctx_params_{};
 
   int ctx_n_ctx_ = 0;
+  int ctx_n_batch_ = 0;
   int n_past_ = 0;
 };
+
+bool find_meta_json(std::string &result);
 
 } // namespace llama_adapter
