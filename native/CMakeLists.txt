@@ -78,6 +78,31 @@ set_target_properties(llama_adapter PROPERTIES
 )
 
 # -------------------------------------------------------------------
+# Copy vendor dependencies & licenses
+# -------------------------------------------------------------------
+if (APPLE)
+    set(lib_pattern "lib*.dylib")
+else()
+    set(lib_pattern "lib*.so")
+endif()
+
+add_custom_command(TARGET llama_adapter POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${LLAMA_LIBRARY_ROOT}/LICENSE"
+        "$<TARGET_FILE_DIR:llama_adapter>/LICENSE-llama"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_SOURCE_DIR}/../LICENSE"
+        "$<TARGET_FILE_DIR:llama_adapter>/LICENSE"
+    COMMENT "Copying licenses to build directory"
+)
+
+add_custom_command(TARGET llama_adapter POST_BUILD
+    COMMAND sh -c "cp ${LLAMA_LIBRARY_ROOT}/${lib_pattern} ."
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:llama_adapter>
+    VERBATIM
+)
+
+# -------------------------------------------------------------------
 # Integration test
 # -------------------------------------------------------------------
 add_executable(integration_test

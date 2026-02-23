@@ -7,14 +7,9 @@
 
 namespace llama_adapter {
 
-Adapter::Adapter() noexcept = default;
+Model::~Model() noexcept { free(); }
 
-Adapter::~Adapter() noexcept {
-  free_context();
-  free_model();
-}
-
-Error Adapter::load_model(const char *path) {
+Error Model::load(const char *path) {
   if (!path)
     return Error::INVALID_ARG;
   try {
@@ -28,24 +23,35 @@ Error Adapter::load_model(const char *path) {
   }
 }
 
-void Adapter::reset() {
-  if (ctx_) {
-    llama_memory_clear(llama_get_memory(ctx_), true);
+void Model::free() {
+  if (model_) {
+    llama_model_free(model_);
+    model_ = nullptr;
   }
-  n_past_ = 0;
 }
 
-Error Adapter::create_context() {
-  if (!model_)
+Context::Context(Model *model) noexcept : model_ref_(model) {}
+
+Context::~Context() noexcept { free(); }
+
+Error Context::init(int n_ctx, int n_batch) {
+  if (!model_ref_ || !model_ref_->handle())
     return Error::INVALID_ARG;
   try {
+    fprintf(stderr, "[DEBUG] Context::init called with n_ctx=%d, n_batch=%d\n",
+            n_ctx, n_batch);
     llama_context_params p = llama_context_default_params();
-    ctx_ = llama_init_from_model(model_, p);
-    if (!ctx_)
-      return Error::LOAD_MODEL;
+    p.n_ctx = (uint32_t)n_ctx;
+    p.n_batch = (uint32_t)n_batch;
 
-    ctx_params_ = p;
+    ctx_ = llama_init_from_model(model_ref_->handle(), p);
+    if (!ctx_) {
+      fprintf(stderr, "[DEBUG] llama_init_from_model failed\n");
+      return Error::LOAD_MODEL;
+    }
+
     ctx_n_ctx_ = (p.n_ctx > 0) ? static_cast<int>(p.n_ctx) : 2048;
+    ctx_n_batch_ = (p.n_batch > 0) ? static_cast<int>(p.n_batch) : 512;
     n_past_ = 0;
     return Error::OK;
   } catch (const std::bad_alloc &) {
@@ -55,7 +61,7 @@ Error Adapter::create_context() {
   }
 }
 
-void Adapter::free_context() {
+void Context::free() {
   if (ctx_) {
     llama_free(ctx_);
     ctx_ = nullptr;
@@ -64,21 +70,21 @@ void Adapter::free_context() {
   n_past_ = 0;
 }
 
-void Adapter::free_model() {
-  if (model_) {
-    llama_model_free(model_);
-    model_ = nullptr;
+void Context::reset() {
+  if (ctx_) {
+    llama_memory_clear(llama_get_memory(ctx_), true);
   }
+  n_past_ = 0;
 }
 
-bool Adapter::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
-  if (!model_ || !prompt)
+bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
+  if (!model_ref_ || !model_ref_->handle() || !prompt)
     return false;
 
   constexpr int MAX_TOKENS = 16384;
   tokens.resize(MAX_TOKENS);
 
-  const llama_vocab *vocab = llama_model_get_vocab(model_);
+  const llama_vocab *vocab = model_ref_->vocab();
   if (!vocab)
     return false;
 
@@ -92,40 +98,54 @@ bool Adapter::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
   return true;
 }
 
-bool Adapter::decode(const std::vector<llama_token> &tokens) {
+bool Context::decode(const std::vector<llama_token> &tokens) {
   if (!ctx_ || tokens.empty())
     return true;
-  if (ctx_n_ctx_ > 0 &&
-      (n_past_ + static_cast<int>(tokens.size())) > ctx_n_ctx_)
-    return false;
 
-  std::vector<llama_pos> pos(tokens.size());
-  for (size_t i = 0; i < tokens.size(); ++i) {
-    pos[i] = n_past_ + static_cast<llama_pos>(i);
+  if (ctx_n_ctx_ > 0 &&
+      (n_past_ + static_cast<int>(tokens.size())) > ctx_n_ctx_) {
+    fprintf(stderr,
+            "[DEBUG] decode failed: n_past_ (%d) + tokens.size() (%zu) > "
+            "ctx_n_ctx_ (%d)\n",
+            n_past_, tokens.size(), ctx_n_ctx_);
+    return false;
   }
 
-  llama_batch b{};
-  b.n_tokens = static_cast<int32_t>(tokens.size());
-  b.token = const_cast<llama_token *>(tokens.data());
-  b.embd = nullptr;
-  b.pos = pos.data();
-  b.n_seq_id = nullptr;
-  b.seq_id = nullptr;
-  b.logits = nullptr;
+  const int batch_size = ctx_n_batch_;
+  for (int i = 0; i < (int)tokens.size(); i += batch_size) {
+    int n_tokens = std::min(batch_size, (int)tokens.size() - i);
 
-  if (llama_decode(ctx_, b) < 0)
-    return false;
+    std::vector<llama_pos> pos(n_tokens);
+    for (int j = 0; j < n_tokens; ++j) {
+      pos[j] = n_past_ + static_cast<llama_pos>(j);
+    }
 
-  n_past_ += static_cast<int>(tokens.size());
+    llama_batch b{};
+    b.n_tokens = static_cast<int32_t>(n_tokens);
+    b.token = const_cast<llama_token *>(tokens.data() + i);
+    b.embd = nullptr;
+    b.pos = pos.data();
+    b.n_seq_id = nullptr;
+    b.seq_id = nullptr;
+    b.logits = nullptr;
+
+    if (llama_decode(ctx_, b) < 0) {
+      fprintf(stderr, "[DEBUG] llama_decode failed at chunk %d\n", i);
+      return false;
+    }
+
+    n_past_ += n_tokens;
+  }
+
   return true;
 }
 
-bool Adapter::generate(std::string &out, size_t limit,
+bool Context::generate(std::string &out, size_t limit,
                        const GenParams &params) {
-  if (!ctx_ || !model_)
+  if (!ctx_ || !model_ref_ || !model_ref_->handle())
     return false;
 
-  const llama_vocab *vocab = llama_model_get_vocab(model_);
+  const llama_vocab *vocab = model_ref_->vocab();
   if (!vocab)
     return false;
 
@@ -182,7 +202,7 @@ bool Adapter::generate(std::string &out, size_t limit,
   return true;
 }
 
-Error Adapter::infer(const char *prompt, char *out, size_t out_size,
+Error Context::infer(const char *prompt, char *out, size_t out_size,
                      const GenParams &params) {
   if (!ctx_ || !prompt || !out || out_size == 0)
     return Error::INVALID_ARG;
@@ -193,8 +213,11 @@ Error Adapter::infer(const char *prompt, char *out, size_t out_size,
     std::vector<llama_token> tokens;
     if (!tokenize(prompt, tokens))
       return Error::IO;
-    if (!decode(tokens))
+
+    if (!decode(tokens)) {
+      fprintf(stderr, "[DEBUG] infer failed at decode stage\n");
       return Error::IO;
+    }
 
     std::string generated;
     if (!generate(generated, out_size, params))
@@ -216,7 +239,7 @@ Error Adapter::infer(const char *prompt, char *out, size_t out_size,
   }
 }
 
-bool Adapter::find_meta_json(std::string &result) {
+bool find_meta_json(std::string &result) {
   const char *env = std::getenv("LLAMA_ADAPTER_META_JSON");
   if (!env)
     return false;

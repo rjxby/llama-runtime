@@ -4,7 +4,6 @@ using LlamaRuntime.Presentation.Grpc.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddLlamaCore();
-builder.Services.AddManagers();
 builder.Services.AddHostedModel();
 builder.Services.AddApiKeyAuth();
 builder.Services.AddAppRateLimiting(builder.Configuration);

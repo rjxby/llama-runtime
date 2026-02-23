@@ -12,6 +12,7 @@ public sealed class LlamaNative : ILlamaNative
 {
     private readonly ILogger<LlamaNative> _logger;
     private readonly NativeLoader _loader;
+    private readonly LlamaNativeOptions _options;
     private bool _disposed;
     private const int BufferSize = 4096;
 
@@ -19,13 +20,13 @@ public sealed class LlamaNative : ILlamaNative
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        var opts = options?.Value ?? throw new ArgumentNullException(nameof(options));
-        if (string.IsNullOrWhiteSpace(opts.NativeLibraryPath))
-            throw new ArgumentException($"Library path must be provided", nameof(opts.NativeLibraryPath));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        if (string.IsNullOrWhiteSpace(_options.NativeLibraryPath))
+            throw new ArgumentException($"Library path must be provided", nameof(_options.NativeLibraryPath));
 
-        _loader = new NativeLoader(opts.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
+        _loader = new NativeLoader(_options.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
 
-        // register handle releasers so SafeHandle.ReleaseHandle can call into native methods
+
         NativeHandleReleaser.Register(
             releaseModel: ptr =>
             {
@@ -69,7 +70,7 @@ public sealed class LlamaNative : ILlamaNative
     {
         EnsureNotDisposed();
         if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
-        var rc = NativeMethods.llama_create_context(model.DangerousGetHandle(), out var ptr);
+        var rc = NativeMethods.llama_create_context(model.DangerousGetHandle(), _options.ContextSize, _options.BatchSize, out var ptr);
         ThrowIfError(rc, "CreateContext");
         if (ptr == IntPtr.Zero) throw new NativeLoadModelException("native returned null context pointer");
         return LlamaContextHandle.FromIntPtr(ptr);
@@ -81,15 +82,22 @@ public sealed class LlamaNative : ILlamaNative
         ctx?.Dispose();
     }
 
-    public string Infer(LlamaModelHandle model, LlamaContextHandle ctx, string prompt)
+    public void ResetContext(LlamaContextHandle ctx)
     {
         EnsureNotDisposed();
-        if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
+        if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
+        var rc = NativeMethods.llama_context_reset(ctx.DangerousGetHandle());
+        ThrowIfError(rc, "ResetContext");
+    }
+
+    public string Infer(LlamaContextHandle ctx, string prompt)
+    {
+        EnsureNotDisposed();
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
 
         var sb = new StringBuilder(BufferSize);
-        var rc = NativeMethods.llama_infer(model.DangerousGetHandle(), ctx.DangerousGetHandle(), prompt, sb, (UIntPtr)sb.Capacity);
+        var rc = NativeMethods.llama_infer(ctx.DangerousGetHandle(), prompt, sb, (UIntPtr)sb.Capacity);
         ThrowIfError(rc, "Infer");
         return sb.ToString();
     }

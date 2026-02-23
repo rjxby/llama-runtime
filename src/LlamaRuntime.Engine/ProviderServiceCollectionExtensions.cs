@@ -12,6 +12,7 @@ public static class ProviderServiceCollectionExtensions
         services.AddOptions<LlamaProviderOptions>()
                 .BindConfiguration(LlamaProviderOptions.SectionName);
 
+        services.AddSingleton<ILlamaContextManager, LlamaContextManager>();
         services.AddSingleton<ILlamaProvider, LlamaProvider>();
 
         return services;

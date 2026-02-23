@@ -40,8 +40,11 @@ nunit-*.xml
 appsettings.Development.json
 
 .env*
+!.env.example
 
 vendor/
 build/
 models/
 dist/
+
+benchmark_*.csv

@@ -1,7 +1,7 @@
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using LlamaRuntime.Engine.Contracts;
-using LlamaRuntime.Presentation.Grpc.Managers;
+using LlamaRuntime.Engine.Contracts;
 
 namespace LlamaRuntime.Presentation.Grpc.Services;
 
@@ -10,13 +10,13 @@ public class GeneratorService : Generator.GeneratorBase
 {
     private readonly ILogger<GeneratorService> _logger;
     private readonly ILoadedModelAccessor _accessor;
-    private readonly IInferenceManager _inferenceManager;
+    private readonly ILlamaProvider _provider;
 
-    public GeneratorService(ILogger<GeneratorService> logger, ILoadedModelAccessor accessor, IInferenceManager inferenceManager)
+    public GeneratorService(ILogger<GeneratorService> logger, ILoadedModelAccessor accessor, ILlamaProvider provider)
     {
         _logger = logger;
         _accessor = accessor;
-        _inferenceManager = inferenceManager;
+        _provider = provider;
     }
 
     public override async Task<GenerateReply> Generate(GenerateRequest request, ServerCallContext context)
@@ -43,7 +43,7 @@ public class GeneratorService : Generator.GeneratorBase
 
         try
         {
-            var result = await _inferenceManager.EnqueueAsync(request.RequestId, request.Prompt, ct);
+            var result = await _provider.InferAsync(model, request.Prompt, ct).ConfigureAwait(false);
 
             return new GenerateReply
             {
@@ -55,14 +55,10 @@ public class GeneratorService : Generator.GeneratorBase
         {
             throw new RpcException(new Status(StatusCode.Cancelled, "Request cancelled"));
         }
-        catch (ModelNotFoundException ex)
-        {
-            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
-        }
-        catch (InferenceException ex)
+        catch (Exception ex) when (ex is ModelNotFoundException or LlamaRuntime.Engine.Contracts.InferenceException)
         {
             _logger.LogError(ex, "Inference failed");
-            throw new RpcException(new Status(StatusCode.Internal, "Inference failed"));
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
         }
         catch (Exception ex)
         {

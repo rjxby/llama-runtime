@@ -17,11 +17,14 @@ internal static class NativeMethods
     internal static extern int llama_unload_model(IntPtr model);
 
     [DllImport(LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "llama_create_context")]
-    internal static extern int llama_create_context(IntPtr model, out IntPtr ctxOut);
+    internal static extern int llama_create_context(IntPtr model, int nCtx, int nBatch, out IntPtr ctxOut);
 
     [DllImport(LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "llama_remove_context")]
     internal static extern int llama_remove_context(IntPtr ctx);
 
+    [DllImport(LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "llama_context_reset")]
+    internal static extern int llama_context_reset(IntPtr ctx);
+
     [DllImport(NativeMethods.LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "llama_infer")]
-    internal static extern int llama_infer(IntPtr model, IntPtr ctx, string prompt, StringBuilder outBuf, UIntPtr outSize);
+    internal static extern int llama_infer(IntPtr ctx, string prompt, StringBuilder outBuf, UIntPtr outSize);
 }

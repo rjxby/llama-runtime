@@ -8,7 +8,6 @@ using LlamaRuntime.Native;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
-using LlamaRuntime.Presentation.Grpc.Managers;
 using LlamaRuntime.Presentation.Grpc.Services;
 
 namespace LlamaRuntime.Presentation.Grpc.Configuration;
@@ -22,17 +21,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILoadedModelAccessor, LoadedModelAccessor>();
         services.AddHostedService<ModelLoaderWorker>();
         services.AddSingleton<GeneratorService>();
-        return services;
-    }
 
-    public static IServiceCollection AddManagers(this IServiceCollection services)
-    {
         services.AddOptions<InferenceOptions>()
                 .BindConfiguration(InferenceOptions.SectionName)
                 .ValidateOnStart();
-
-        services.AddSingleton<IInferenceManager, InferenceManager>();
-        services.AddHostedService<InferenceWorker>();
 
         return services;
     }

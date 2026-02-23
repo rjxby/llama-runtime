@@ -37,7 +37,18 @@ internal sealed class ContextPool : IDisposable
                 try { ctx.Dispose(); } catch { }
                 continue;
             }
-            return ctx;
+
+            try
+            {
+                _native.ResetContext(ctx);
+                return ctx;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to reset pooled context. Disposing and creating new one.");
+                try { ctx.Dispose(); } catch { }
+                continue;
+            }
         }
 
         try
