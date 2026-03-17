@@ -34,12 +34,14 @@ Context::Context(Model *model) noexcept : model_ref_(model) {}
 
 Context::~Context() noexcept { free(); }
 
-Error Context::init(int n_ctx, int n_batch) {
+Error Context::init(int n_ctx, int n_batch, int max_tokens) {
   if (!model_ref_ || !model_ref_->handle())
     return Error::INVALID_ARG;
   try {
-    fprintf(stderr, "[DEBUG] Context::init called with n_ctx=%d, n_batch=%d\n",
-            n_ctx, n_batch);
+    fprintf(stderr,
+            "[DEBUG] Context::init called with n_ctx=%d, n_batch=%d, "
+            "max_tokens=%d\n",
+            n_ctx, n_batch, max_tokens);
     llama_context_params p = llama_context_default_params();
     p.n_ctx = (uint32_t)n_ctx;
     p.n_batch = (uint32_t)n_batch;
@@ -52,6 +54,7 @@ Error Context::init(int n_ctx, int n_batch) {
 
     ctx_n_ctx_ = (p.n_ctx > 0) ? static_cast<int>(p.n_ctx) : 2048;
     ctx_n_batch_ = (p.n_batch > 0) ? static_cast<int>(p.n_batch) : 512;
+    max_tokens_ = (max_tokens > 0) ? max_tokens : 16384;
     n_past_ = 0;
     return Error::OK;
   } catch (const std::bad_alloc &) {
@@ -81,17 +84,17 @@ bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
   if (!model_ref_ || !model_ref_->handle() || !prompt)
     return false;
 
-  constexpr int MAX_TOKENS = 16384;
-  tokens.resize(MAX_TOKENS);
+  const int max_t = (max_tokens_ > 0) ? max_tokens_ : 16384;
+  tokens.resize(max_t);
 
   const llama_vocab *vocab = model_ref_->vocab();
   if (!vocab)
     return false;
 
   int32_t n = llama_tokenize(vocab, prompt, (int32_t)std::strlen(prompt),
-                             tokens.data(), MAX_TOKENS, true, false);
+                             tokens.data(), max_t, true, false);
 
-  if (n < 0 || n == MAX_TOKENS)
+  if (n < 0 || n == max_t)
     return false;
 
   tokens.resize(n);
@@ -203,8 +206,8 @@ bool Context::generate(std::string &out, size_t limit,
 }
 
 Error Context::infer(const char *prompt, char *out, size_t out_size,
-                     const GenParams &params) {
-  if (!ctx_ || !prompt || !out || out_size == 0)
+                     int32_t *out_written, const GenParams &params) {
+  if (!ctx_ || !prompt)
     return Error::INVALID_ARG;
 
   reset();
@@ -220,20 +223,37 @@ Error Context::infer(const char *prompt, char *out, size_t out_size,
     }
 
     std::string generated;
-    if (!generate(generated, out_size, params))
+    // We pass 1GB as a logical limit for the string growth if out_size is 0
+    size_t limit = (out && out_size > 0) ? out_size : (1024 * 1024 * 1024);
+    if (!generate(generated, limit, params))
       return Error::IO;
 
-    size_t n = std::min(out_size - 1, generated.size());
-    std::memcpy(out, generated.data(), n);
-    out[n] = '\0';
+    if (out_written) {
+      *out_written = static_cast<int32_t>(generated.size());
+    }
+
+    if (!out) {
+      return Error::OK;
+    }
+
+    if (out_size <= generated.size()) {
+      return Error::INVALID_ARG;
+    }
+
+    std::memcpy(out, generated.data(), generated.size());
+    out[generated.size()] = '\0';
 
     return Error::OK;
   } catch (const std::bad_alloc &) {
-    if (out && out_size)
+    if (out_written)
+      *out_written = 0;
+    if (out && out_size > 0)
       out[0] = '\0';
     return Error::OUT_OF_MEMORY;
   } catch (...) {
-    if (out && out_size)
+    if (out_written)
+      *out_written = 0;
+    if (out && out_size > 0)
       out[0] = '\0';
     return Error::UNKNOWN;
   }
