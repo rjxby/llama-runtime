@@ -1,5 +1,6 @@
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.Services;
+using LlamaRuntime.Presentation.Grpc.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,7 +10,10 @@ builder.Services.AddApiKeyAuth();
 builder.Services.AddAppRateLimiting(builder.Configuration);
 builder.Services.AddLlamaHealthChecks();
 
-builder.Services.AddGrpc();
+builder.Services.AddGrpc(options =>
+{
+    options.Interceptors.Add<LoggingInterceptor>();
+});
 
 var app = builder.Build();
 

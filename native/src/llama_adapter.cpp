@@ -70,14 +70,14 @@ int llama_unload_model(void *model) noexcept {
   return LLAMA_ADAPTER_OK;
 }
 
-int llama_create_context(void *model, int n_ctx, int n_batch,
+int llama_create_context(void *model, int n_ctx, int n_batch, int max_tokens,
                          void **ctx_out) noexcept {
   if (!model || !ctx_out)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
   try {
     llama_adapter::Model *m = static_cast<llama_adapter::Model *>(model);
     llama_adapter::Context *ctx = new llama_adapter::Context(m);
-    if (ctx->init(n_ctx, n_batch) != llama_adapter::Error::OK) {
+    if (ctx->init(n_ctx, n_batch, max_tokens) != llama_adapter::Error::OK) {
       delete ctx;
       return LLAMA_ADAPTER_ERR_LOAD_MODEL;
     }
@@ -102,12 +102,12 @@ int llama_context_reset(void *ctx) noexcept {
   return LLAMA_ADAPTER_OK;
 }
 
-int llama_infer(void *ctx, const char *prompt, char *out,
-                size_t out_size) noexcept {
-  if (!ctx || !prompt || !out || out_size == 0)
+int llama_infer(void *ctx, const char *prompt, char *out, size_t out_size,
+                int32_t *out_written) noexcept {
+  if (!ctx || !prompt)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
   llama_adapter::GenParams params;
   return static_cast<int>(static_cast<llama_adapter::Context *>(ctx)->infer(
-      prompt, out, out_size, params));
+      prompt, out, out_size, out_written, params));
 }
 }

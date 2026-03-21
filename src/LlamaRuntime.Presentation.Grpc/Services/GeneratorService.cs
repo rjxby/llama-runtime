@@ -1,7 +1,6 @@
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using LlamaRuntime.Engine.Contracts;
-using LlamaRuntime.Engine.Contracts;
 
 namespace LlamaRuntime.Presentation.Grpc.Services;
 

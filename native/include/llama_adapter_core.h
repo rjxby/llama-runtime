@@ -42,7 +42,7 @@ public:
   Context(Model *model) noexcept;
   ~Context() noexcept;
 
-  Error init(int n_ctx, int n_batch);
+  Error init(int n_ctx, int n_batch, int max_tokens);
   void free();
   void reset();
 
@@ -51,7 +51,7 @@ public:
   bool generate(std::string &out, size_t limit, const GenParams &params);
 
   Error infer(const char *prompt, char *out, size_t out_size,
-              const GenParams &params);
+              int32_t *out_written, const GenParams &params);
 
 private:
   Model *model_ref_ = nullptr;
@@ -59,6 +59,7 @@ private:
 
   int ctx_n_ctx_ = 0;
   int ctx_n_batch_ = 0;
+  int max_tokens_ = 0;
   int n_past_ = 0;
 };
 

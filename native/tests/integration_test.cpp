@@ -29,13 +29,14 @@ int main(int argc, char **argv) {
   assert(model != NULL);
 
   void *ctx = NULL;
-  rc = llama_create_context(model, 4096, 512, &ctx);
+  rc = llama_create_context(model, 4096, 512, 4096, &ctx);
   assert_ok(rc, "create_context");
   assert(ctx != NULL);
 
   char output[4096] = {0};
+  int32_t written = 0;
   rc = llama_infer(ctx, "Hello! Tell me a short sentence about llamas.", output,
-                   sizeof(output));
+                   sizeof(output), &written);
   assert_ok(rc, "infer 1");
   printf("Inference 1 (truncated): %.200s\n", output);
 
@@ -48,7 +49,8 @@ int main(int argc, char **argv) {
   assert_ok(rc, "context_reset");
 
   memset(output, 0, sizeof(output));
-  rc = llama_infer(ctx, "Now tell me a short joke.", output, sizeof(output));
+  rc = llama_infer(ctx, "Now tell me a short joke.", output, sizeof(output),
+                   &written);
   assert_ok(rc, "infer 2");
   printf("Inference 2 (truncated): %.200s\n", output);
 

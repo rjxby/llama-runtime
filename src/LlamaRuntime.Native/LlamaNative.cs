@@ -14,7 +14,6 @@ public sealed class LlamaNative : ILlamaNative
     private readonly NativeLoader _loader;
     private readonly LlamaNativeOptions _options;
     private bool _disposed;
-    private const int BufferSize = 4096;
 
     public LlamaNative(IOptions<LlamaNativeOptions> options, ILogger<LlamaNative> logger)
     {
@@ -43,7 +42,7 @@ public sealed class LlamaNative : ILlamaNative
     public string GetVersion()
     {
         EnsureNotDisposed();
-        var sb = new StringBuilder(BufferSize);
+        var sb = new StringBuilder(_options.InferenceBufferSize);
         var rc = NativeMethods.llama_adapter_get_version(sb, (UIntPtr)sb.Capacity);
         ThrowIfError(rc, "GetVersion");
         return sb.ToString();
@@ -70,7 +69,7 @@ public sealed class LlamaNative : ILlamaNative
     {
         EnsureNotDisposed();
         if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
-        var rc = NativeMethods.llama_create_context(model.DangerousGetHandle(), _options.ContextSize, _options.BatchSize, out var ptr);
+        var rc = NativeMethods.llama_create_context(model, _options.ContextSize, _options.BatchSize, _options.MaxTokens, out var ptr);
         ThrowIfError(rc, "CreateContext");
         if (ptr == IntPtr.Zero) throw new NativeLoadModelException("native returned null context pointer");
         return LlamaContextHandle.FromIntPtr(ptr);
@@ -86,7 +85,7 @@ public sealed class LlamaNative : ILlamaNative
     {
         EnsureNotDisposed();
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
-        var rc = NativeMethods.llama_context_reset(ctx.DangerousGetHandle());
+        var rc = NativeMethods.llama_context_reset(ctx);
         ThrowIfError(rc, "ResetContext");
     }
 
@@ -96,8 +95,14 @@ public sealed class LlamaNative : ILlamaNative
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
 
-        var sb = new StringBuilder(BufferSize);
-        var rc = NativeMethods.llama_infer(ctx.DangerousGetHandle(), prompt, sb, (UIntPtr)sb.Capacity);
+        var sb = new StringBuilder(_options.InferenceBufferSize);
+        var rc = NativeMethods.llama_infer(ctx, prompt, sb, (UIntPtr)sb.Capacity, out var outWritten);
+
+        if (((NativeError)rc == NativeError.Ok || (NativeError)rc == NativeError.InvalidArgument) && outWritten > sb.Capacity)
+        {
+            _logger.LogWarning("Response truncated. Required size: {Required}, Buffer size: {Buffer}", outWritten, sb.Capacity);
+        }
+
         ThrowIfError(rc, "Infer");
         return sb.ToString();
     }
