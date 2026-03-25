@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
   assert(model != NULL);
 
   void *ctx = NULL;
-  rc = llama_create_context(model, 4096, 512, 4096, &ctx);
+  rc = llama_create_context(model, 4096, 512, 4096, 512, &ctx);
   assert_ok(rc, "create_context");
   assert(ctx != NULL);
 

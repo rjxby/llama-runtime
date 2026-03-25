@@ -34,14 +34,15 @@ Context::Context(Model *model) noexcept : model_ref_(model) {}
 
 Context::~Context() noexcept { free(); }
 
-Error Context::init(int n_ctx, int n_batch, int max_tokens) {
+Error Context::init(int n_ctx, int n_batch, int max_tokens,
+                    int generation_max_new_tokens) {
   if (!model_ref_ || !model_ref_->handle())
     return Error::INVALID_ARG;
   try {
     fprintf(stderr,
             "[DEBUG] Context::init called with n_ctx=%d, n_batch=%d, "
-            "max_tokens=%d\n",
-            n_ctx, n_batch, max_tokens);
+            "max_tokens=%d, generation_max_new_tokens=%d\n",
+            n_ctx, n_batch, max_tokens, generation_max_new_tokens);
     llama_context_params p = llama_context_default_params();
     p.n_ctx = (uint32_t)n_ctx;
     p.n_batch = (uint32_t)n_batch;
@@ -55,6 +56,8 @@ Error Context::init(int n_ctx, int n_batch, int max_tokens) {
     ctx_n_ctx_ = (p.n_ctx > 0) ? static_cast<int>(p.n_ctx) : 2048;
     ctx_n_batch_ = (p.n_batch > 0) ? static_cast<int>(p.n_batch) : 512;
     max_tokens_ = (max_tokens > 0) ? max_tokens : 16384;
+    generation_max_new_tokens_ =
+        (generation_max_new_tokens > 0) ? generation_max_new_tokens : 128;
     n_past_ = 0;
     return Error::OK;
   } catch (const std::bad_alloc &) {
@@ -70,6 +73,7 @@ void Context::free() {
     ctx_ = nullptr;
   }
   ctx_n_ctx_ = 0;
+  generation_max_new_tokens_ = 128;
   n_past_ = 0;
 }
 
@@ -99,6 +103,24 @@ bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
 
   tokens.resize(n);
   return true;
+}
+
+Error Context::count_tokens(const char *prompt, int32_t *token_count) {
+  if (!prompt || !token_count)
+    return Error::INVALID_ARG;
+
+  try {
+    std::vector<llama_token> tokens;
+    if (!tokenize(prompt, tokens))
+      return Error::IO;
+
+    *token_count = static_cast<int32_t>(tokens.size());
+    return Error::OK;
+  } catch (const std::bad_alloc &) {
+    return Error::OUT_OF_MEMORY;
+  } catch (...) {
+    return Error::UNKNOWN;
+  }
 }
 
 bool Context::decode(const std::vector<llama_token> &tokens) {

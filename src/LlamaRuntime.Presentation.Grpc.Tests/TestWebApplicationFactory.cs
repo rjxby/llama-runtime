@@ -12,7 +12,9 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         {
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ApiKeys:Keys:0"] = ApiKey
+                ["ApiKeys:Keys:0"] = ApiKey,
+                ["Llama:Native:ContextSize"] = "32",
+                ["Llama:Native:GenerationMaxNewTokens"] = "8"
             });
         });
         builder.ConfigureServices(services =>
@@ -23,6 +25,8 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 .Returns(LlamaRuntime.Native.Contracts.LlamaModelHandle.FromIntPtr(new IntPtr(1)));
             nativeMock.Setup(x => x.CreateContext(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaModelHandle>()))
                 .Returns(LlamaRuntime.Native.Contracts.LlamaContextHandle.FromIntPtr(new IntPtr(1)));
+            nativeMock.Setup(x => x.CountTokens(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) => prompt.Length);
             nativeMock.Setup(x => x.Infer(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
                 .Returns("mocked response");
 

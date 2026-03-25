@@ -24,6 +24,13 @@ internal sealed class LlamaSession : IInferenceSession
         return await Task.Run(() => _native.Infer(_handle, prompt), ct).ConfigureAwait(false);
     }
 
+    public async Task<int> CountTokensAsync(string prompt, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
+
+        return await Task.Run(() => _native.CountTokens(_handle, prompt), ct).ConfigureAwait(false);
+    }
+
     public ValueTask DisposeAsync()
     {
         if (_disposed) return ValueTask.CompletedTask;

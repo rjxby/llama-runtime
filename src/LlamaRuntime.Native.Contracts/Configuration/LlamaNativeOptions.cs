@@ -7,5 +7,6 @@ public sealed class LlamaNativeOptions
     public int ContextSize { get; set; } = 4096;
     public int BatchSize { get; set; } = 512;
     public int MaxTokens { get; set; } = 16384;
+    public int GenerationMaxNewTokens { get; set; } = 512;
     public int InferenceBufferSize { get; set; } = 1024 * 1024;
 }

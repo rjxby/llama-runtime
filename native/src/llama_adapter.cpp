@@ -3,6 +3,28 @@
 
 extern "C" {
 
+namespace {
+
+int to_public_error(llama_adapter::Error error) noexcept {
+  switch (error) {
+  case llama_adapter::Error::OK:
+    return LLAMA_ADAPTER_OK;
+  case llama_adapter::Error::INVALID_ARG:
+    return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  case llama_adapter::Error::LOAD_MODEL:
+    return LLAMA_ADAPTER_ERR_LOAD_MODEL;
+  case llama_adapter::Error::OUT_OF_MEMORY:
+    return LLAMA_ADAPTER_ERR_OUT_OF_MEMORY;
+  case llama_adapter::Error::IO:
+    return LLAMA_ADAPTER_ERR_IO;
+  case llama_adapter::Error::UNKNOWN:
+  default:
+    return LLAMA_ADAPTER_ERR_UNKNOWN;
+  }
+}
+
+} // namespace
+
 int llama_adapter_get_version(char *out, size_t out_size) noexcept {
   if (!out || out_size == 0)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
@@ -71,13 +93,15 @@ int llama_unload_model(void *model) noexcept {
 }
 
 int llama_create_context(void *model, int n_ctx, int n_batch, int max_tokens,
+                         int generation_max_new_tokens,
                          void **ctx_out) noexcept {
   if (!model || !ctx_out)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
   try {
     llama_adapter::Model *m = static_cast<llama_adapter::Model *>(model);
     llama_adapter::Context *ctx = new llama_adapter::Context(m);
-    if (ctx->init(n_ctx, n_batch, max_tokens) != llama_adapter::Error::OK) {
+    if (ctx->init(n_ctx, n_batch, max_tokens, generation_max_new_tokens) !=
+        llama_adapter::Error::OK) {
       delete ctx;
       return LLAMA_ADAPTER_ERR_LOAD_MODEL;
     }
@@ -102,12 +126,23 @@ int llama_context_reset(void *ctx) noexcept {
   return LLAMA_ADAPTER_OK;
 }
 
+int llama_count_tokens(void *ctx, const char *prompt,
+                       int32_t *token_count) noexcept {
+  if (!ctx || !prompt || !token_count)
+    return LLAMA_ADAPTER_ERR_INVALID_ARG;
+
+  return to_public_error(
+      static_cast<llama_adapter::Context *>(ctx)->count_tokens(prompt, token_count));
+}
+
 int llama_infer(void *ctx, const char *prompt, char *out, size_t out_size,
                 int32_t *out_written) noexcept {
   if (!ctx || !prompt)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
   llama_adapter::GenParams params;
-  return static_cast<int>(static_cast<llama_adapter::Context *>(ctx)->infer(
+  params.max_new_tokens =
+      static_cast<llama_adapter::Context *>(ctx)->generation_max_new_tokens();
+  return to_public_error(static_cast<llama_adapter::Context *>(ctx)->infer(
       prompt, out, out_size, out_written, params));
 }
 }
