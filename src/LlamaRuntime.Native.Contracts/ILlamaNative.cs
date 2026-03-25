@@ -15,6 +15,7 @@ public interface ILlamaNative : IDisposable
     LlamaContextHandle CreateContext(LlamaModelHandle model);
     void RemoveContext(LlamaContextHandle ctx);
     void ResetContext(LlamaContextHandle ctx);
+    int CountTokens(LlamaContextHandle ctx, string prompt);
 
     string Infer(LlamaContextHandle ctx, string prompt);
 }

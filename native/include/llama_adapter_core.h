@@ -42,11 +42,14 @@ public:
   Context(Model *model) noexcept;
   ~Context() noexcept;
 
-  Error init(int n_ctx, int n_batch, int max_tokens);
+  Error init(int n_ctx, int n_batch, int max_tokens,
+             int generation_max_new_tokens);
+  int generation_max_new_tokens() const { return generation_max_new_tokens_; }
   void free();
   void reset();
 
   bool tokenize(const char *prompt, std::vector<llama_token> &tokens);
+  Error count_tokens(const char *prompt, int32_t *token_count);
   bool decode(const std::vector<llama_token> &tokens);
   bool generate(std::string &out, size_t limit, const GenParams &params);
 
@@ -60,6 +63,7 @@ private:
   int ctx_n_ctx_ = 0;
   int ctx_n_batch_ = 0;
   int max_tokens_ = 0;
+  int generation_max_new_tokens_ = 128;
   int n_past_ = 0;
 };
 

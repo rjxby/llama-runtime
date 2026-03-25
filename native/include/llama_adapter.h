@@ -38,9 +38,12 @@ LLAMA_ADAPTER_API int llama_load_model(const char *path,
 LLAMA_ADAPTER_API int llama_unload_model(void *model) noexcept;
 LLAMA_ADAPTER_API int llama_create_context(void *model, int n_ctx, int n_batch,
                                            int max_tokens,
+                                           int generation_max_new_tokens,
                                            void **ctx_out) noexcept;
 LLAMA_ADAPTER_API int llama_remove_context(void *ctx) noexcept;
 LLAMA_ADAPTER_API int llama_context_reset(void *ctx) noexcept;
+LLAMA_ADAPTER_API int llama_count_tokens(void *ctx, const char *prompt,
+                                         int32_t *token_count) noexcept;
 LLAMA_ADAPTER_API int llama_infer(void *ctx, const char *prompt, char *out,
                                    size_t out_size,
                                    int32_t *out_written) noexcept;

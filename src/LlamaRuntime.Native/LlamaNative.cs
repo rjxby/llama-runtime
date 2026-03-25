@@ -69,7 +69,13 @@ public sealed class LlamaNative : ILlamaNative
     {
         EnsureNotDisposed();
         if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
-        var rc = NativeMethods.llama_create_context(model, _options.ContextSize, _options.BatchSize, _options.MaxTokens, out var ptr);
+        var rc = NativeMethods.llama_create_context(
+            model,
+            _options.ContextSize,
+            _options.BatchSize,
+            _options.MaxTokens,
+            _options.GenerationMaxNewTokens,
+            out var ptr);
         ThrowIfError(rc, "CreateContext");
         if (ptr == IntPtr.Zero) throw new NativeLoadModelException("native returned null context pointer");
         return LlamaContextHandle.FromIntPtr(ptr);
@@ -87,6 +93,17 @@ public sealed class LlamaNative : ILlamaNative
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         var rc = NativeMethods.llama_context_reset(ctx);
         ThrowIfError(rc, "ResetContext");
+    }
+
+    public int CountTokens(LlamaContextHandle ctx, string prompt)
+    {
+        EnsureNotDisposed();
+        if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
+        if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
+
+        var rc = NativeMethods.llama_count_tokens(ctx, prompt, out var tokenCount);
+        ThrowIfError(rc, "CountTokens");
+        return tokenCount;
     }
 
     public string Infer(LlamaContextHandle ctx, string prompt)
