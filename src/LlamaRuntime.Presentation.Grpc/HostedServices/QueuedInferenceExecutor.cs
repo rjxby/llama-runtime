@@ -1,0 +1,183 @@
+using System.Threading.Channels;
+using Microsoft.Extensions.Options;
+using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Presentation.Grpc.Configuration;
+using LlamaRuntime.Presentation.Grpc.Services;
+
+namespace LlamaRuntime.Presentation.Grpc.HostedServices;
+
+public sealed class QueuedInferenceExecutor : BackgroundService, IInferenceExecutor
+{
+    private readonly Channel<IInferenceWorkItem> _channel;
+    private readonly ILlamaProvider _provider;
+    private readonly IHostedModelStore _hostedModelStore;
+    private readonly ILogger<QueuedInferenceExecutor> _logger;
+    private readonly InferenceOptions _options;
+
+    public QueuedInferenceExecutor(
+        ILlamaProvider provider,
+        IHostedModelStore hostedModelStore,
+        IOptions<InferenceOptions> options,
+        ILogger<QueuedInferenceExecutor> logger)
+    {
+        _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        _hostedModelStore = hostedModelStore ?? throw new ArgumentNullException(nameof(hostedModelStore));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+
+        if (_options.ChannelCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Inference channel capacity must be greater than zero.");
+        }
+
+        if (_options.WorkerCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Inference worker count must be greater than zero.");
+        }
+
+        _channel = Channel.CreateBounded<IInferenceWorkItem>(new BoundedChannelOptions(_options.ChannelCapacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = false,
+            SingleWriter = false
+        });
+    }
+
+    public Task<string> InferAsync(string prompt, CancellationToken cancellationToken) =>
+        EnqueueAsync(
+            "infer",
+            (model, ct) => _provider.InferAsync(model, prompt, ct),
+            cancellationToken);
+
+    public Task<int> CountTokensAsync(string prompt, CancellationToken cancellationToken) =>
+        EnqueueAsync(
+            "count_tokens",
+            (model, ct) => _provider.CountTokensAsync(model, prompt, ct),
+            cancellationToken);
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var workers = Enumerable.Range(0, _options.WorkerCount)
+            .Select(workerId => RunWorkerAsync(workerId, stoppingToken));
+
+        return Task.WhenAll(workers);
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _channel.Writer.TryComplete();
+        await base.StopAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<T> EnqueueAsync<T>(
+        string operationName,
+        Func<IEngineModel, CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var workItem = new InferenceWorkItem<T>(operationName, operation);
+        using var enqueueCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        enqueueCts.CancelAfter(_options.AcquireTimeout);
+
+        try
+        {
+            await _channel.Writer.WriteAsync(workItem, enqueueCts.Token).ConfigureAwait(false);
+        }
+        catch (ChannelClosedException ex)
+        {
+            throw new InferenceQueueRejectedException("Inference queue is closed because the runtime is stopping.", ex);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InferenceQueueRejectedException(
+                $"Inference queue did not accept the request within {_options.AcquireTimeout}.",
+                ex);
+        }
+
+        return await workItem.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunWorkerAsync(int workerId, CancellationToken stoppingToken)
+    {
+        await foreach (var workItem in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+        {
+            if (stoppingToken.IsCancellationRequested)
+            {
+                workItem.TrySetCanceled(stoppingToken);
+                continue;
+            }
+
+            if (!_hostedModelStore.TryGetLoadedModel(out var model) || model == null)
+            {
+                workItem.TrySetException(CreateModelUnavailableException());
+                continue;
+            }
+
+            using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            executionCts.CancelAfter(_options.AcquireTimeout);
+
+            try
+            {
+                await workItem.ExecuteAsync(model, executionCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Inference worker {WorkerId} timed out while executing {Operation}", workerId, workItem.OperationName);
+                workItem.TrySetException(new InferenceQueueRejectedException(
+                    $"Inference request exceeded the execution timeout of {_options.AcquireTimeout}.",
+                    ex));
+            }
+            catch (Exception ex)
+            {
+                workItem.TrySetException(ex);
+            }
+        }
+    }
+
+    private ModelNotFoundException CreateModelUnavailableException()
+    {
+        var snapshot = _hostedModelStore.GetSnapshot();
+        return snapshot.State switch
+        {
+            HostedModelState.Loading => new ModelNotFoundException("Model is still loading."),
+            HostedModelState.Failed => new ModelNotFoundException(snapshot.FailureMessage ?? "Model failed to load."),
+            HostedModelState.Stopping => new ModelNotFoundException("Model is stopping."),
+            _ => new ModelNotFoundException("Model not loaded.")
+        };
+    }
+
+    private interface IInferenceWorkItem
+    {
+        string OperationName { get; }
+        Task ExecuteAsync(IEngineModel model, CancellationToken cancellationToken);
+        void TrySetException(Exception exception);
+        void TrySetCanceled(CancellationToken cancellationToken);
+    }
+
+    private sealed class InferenceWorkItem<T> : IInferenceWorkItem
+    {
+        private readonly Func<IEngineModel, CancellationToken, Task<T>> _operation;
+        private readonly TaskCompletionSource<T> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public InferenceWorkItem(string operationName, Func<IEngineModel, CancellationToken, Task<T>> operation)
+        {
+            OperationName = operationName;
+            _operation = operation;
+        }
+
+        public string OperationName { get; }
+
+        public async Task ExecuteAsync(IEngineModel model, CancellationToken cancellationToken)
+        {
+            var result = await _operation(model, cancellationToken).ConfigureAwait(false);
+            _tcs.TrySetResult(result);
+        }
+
+        public void TrySetException(Exception exception) => _tcs.TrySetException(exception);
+
+        public void TrySetCanceled(CancellationToken cancellationToken) => _tcs.TrySetCanceled(cancellationToken);
+
+        public Task<T> WaitAsync(CancellationToken cancellationToken) => _tcs.Task.WaitAsync(cancellationToken);
+    }
+}

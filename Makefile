@@ -83,6 +83,7 @@ CMAKE_BUILD_DIR := $(NATIVE_DIR)/build
 BENCH_ITERATIONS ?= 100
 BENCH_CONCURRENCY ?= 5
 BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems."
+BENCH_GRPCURL ?= http://localhost:5000
 
 # ------------------------------------------------------------
 # gRPC runtime config
@@ -208,10 +209,11 @@ llama-runtime-grpc-run: pack
 # ------------------------------------------------------------
 bench-llama-runtime-grpc:
 	BENCH_MODE=LLAMARUNTIMEGRPC \
+	BENCH_GRPCURL=$(BENCH_GRPCURL) \
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
 	BENCH_PROMPT=$(BENCH_PROMPT) \
-	BENCH_APIKEY=$(ApiKeys__Keys__0) \
+	BENCH_APIKEY=$(BENCH_APIKEY) \
 	dotnet run -c Release --project src/LlamaRuntime.Benchmarks
 
 bench-llama-rest:

@@ -24,7 +24,7 @@ public static class GrpcBenchmark
             apiKey);
 
         using var channel = GrpcChannel.ForAddress(
-            "http://localhost:5000",
+            options.GrpcUrl,
             new GrpcChannelOptions
             {
                 HttpClient = httpClient

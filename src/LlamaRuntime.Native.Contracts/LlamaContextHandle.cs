@@ -19,7 +19,7 @@ public sealed class LlamaContextHandle : SafeHandle
     {
         try
         {
-            NativeHandleReleaser.ReleaseContext?.Invoke(handle);
+            NativeRuntimeBindings.ReleaseContext(handle);
         }
         catch
         {

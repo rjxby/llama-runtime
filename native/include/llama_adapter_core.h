@@ -15,6 +15,7 @@ enum class Error {
   LOAD_MODEL,
   OUT_OF_MEMORY,
   IO,
+  BUFFER_TOO_SMALL,
   UNKNOWN,
 };
 

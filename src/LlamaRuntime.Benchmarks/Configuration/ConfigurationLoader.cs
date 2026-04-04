@@ -25,6 +25,11 @@ public static class ConfigurationLoader
             {
                 throw new InvalidOperationException("ApiKey is required for Llama Runtime Grpc mode. Set BENCH_APIKEY.");
             }
+
+            if (!Uri.TryCreate(options.GrpcUrl, UriKind.Absolute, out _))
+            {
+                throw new InvalidOperationException("GrpcUrl must be an absolute URI. Set BENCH_GRPCURL.");
+            }
         }
         else if (options.Mode == BenchmarkMode.LlamaRest)
         {

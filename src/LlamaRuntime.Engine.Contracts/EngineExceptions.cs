@@ -25,7 +25,17 @@ public sealed class PromptBudgetExceededException : InferenceException
     public PromptBudgetExceededException(string message) : base(message) { }
 }
 
+public sealed class OutputBufferExceededException : InferenceException
+{
+    public OutputBufferExceededException(string message, Exception? inner = null) : base(message, inner) { }
+}
+
 public class PoolExhaustedException : EngineException
 {
     public PoolExhaustedException(string message, Exception? inner = null) : base(message, inner) { }
+}
+
+public sealed class InferenceQueueRejectedException : InferenceException
+{
+    public InferenceQueueRejectedException(string message, Exception? inner = null) : base(message, inner) { }
 }

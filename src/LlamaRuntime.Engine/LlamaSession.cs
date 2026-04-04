@@ -17,18 +17,20 @@ internal sealed class LlamaSession : IInferenceSession
         _onDispose = onDispose ?? throw new ArgumentNullException(nameof(onDispose));
     }
 
-    public async Task<string> InferAsync(string prompt, CancellationToken ct = default)
+    public Task<string> InferAsync(string prompt, CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
+        ct.ThrowIfCancellationRequested();
 
-        return await Task.Run(() => _native.Infer(_handle, prompt), ct).ConfigureAwait(false);
+        return Task.FromResult(_native.Infer(_handle, prompt));
     }
 
-    public async Task<int> CountTokensAsync(string prompt, CancellationToken ct = default)
+    public Task<int> CountTokensAsync(string prompt, CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
+        ct.ThrowIfCancellationRequested();
 
-        return await Task.Run(() => _native.CountTokens(_handle, prompt), ct).ConfigureAwait(false);
+        return Task.FromResult(_native.CountTokens(_handle, prompt));
     }
 
     public ValueTask DisposeAsync()

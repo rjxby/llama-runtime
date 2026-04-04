@@ -18,12 +18,17 @@ public static class ServiceCollectionExtensions
     {
         services.AddLlamaNative();
         services.AddLlamaProvider();
-        services.AddSingleton<ILoadedModelAccessor, LoadedModelAccessor>();
+        services.AddSingleton<IHostedModelStore, HostedModelStore>();
         services.AddHostedService<ModelLoaderWorker>();
-        services.AddSingleton<GeneratorService>();
+        services.AddSingleton<QueuedInferenceExecutor>();
+        services.AddSingleton<IInferenceExecutor>(sp => sp.GetRequiredService<QueuedInferenceExecutor>());
+        services.AddHostedService(sp => sp.GetRequiredService<QueuedInferenceExecutor>());
 
         services.AddOptions<InferenceOptions>()
                 .BindConfiguration(InferenceOptions.SectionName)
+                .Validate(o => o.ChannelCapacity > 0, $"{nameof(InferenceOptions.ChannelCapacity)} must be greater than zero")
+                .Validate(o => o.WorkerCount > 0, $"{nameof(InferenceOptions.WorkerCount)} must be greater than zero")
+                .Validate(o => o.AcquireTimeout > TimeSpan.Zero, $"{nameof(InferenceOptions.AcquireTimeout)} must be greater than zero")
                 .ValidateOnStart();
 
         return services;
@@ -88,7 +93,6 @@ public static class ServiceCollectionExtensions
     {
         services.AddHealthChecks()
                 .AddCheck<ModelReadyHealthCheck>("model_ready");
-        services.AddSingleton<IHealthCheck, ModelReadyHealthCheck>();
         return services;
     }
 }

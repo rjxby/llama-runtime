@@ -16,8 +16,8 @@ The goal is to offer a **tiny runtime layer** that feels like a real SDK, while 
 
 ✔ Minimal dependencies
 ✔ Stable API surface
-✔ No hidden allocations inside the adapter
-✔ Works safely across llama.cpp versions
+✔ Explicit lifetime rules
+✔ Pinned compatibility expectations
 ✔ Thread-safe *at the level llama.cpp allows*
 ✔ Good error semantics instead of raw `nullptr` checking
 ✔ Predictable lifetime rules
@@ -72,9 +72,9 @@ This adapter intentionally uses the **most portable llama.cpp integration path**
 - Uses `llama_get_logits()` (not version-fragile `..._ith(-1)`)
 - Avoids assumptions about internal `seq_id`, `pos`, `logits` pointer representation
 - Uses official llama.cpp vocab APIs
-- Checks for prompt overflow instead of silently truncating
+- Returns an explicit buffer-too-small error when the caller output buffer is insufficient
 
-This means it should work across a wide range of llama.cpp versions including `b7622`.
+The repo is currently validated against the pinned vendor release `b7932`. Other revisions should be treated as unverified until tested.
 
 ---
 
@@ -91,7 +91,7 @@ make native-build
 Run integration tests:
 
 ```bash
-make integration-tests
+make native-integration-tests
 ```
 
 Resulting library:
@@ -124,7 +124,14 @@ int llama_unload_model(void * model);
 ### Create Context
 
 ```c
-int llama_create_context(void * model, void ** ctx_out);
+int llama_create_context(
+    void * model,
+    int n_ctx,
+    int n_batch,
+    int max_tokens,
+    int generation_max_new_tokens,
+    void ** ctx_out
+);
 ```
 
 - Creates execution context from model
@@ -141,12 +148,11 @@ int llama_remove_context(void * ctx);
 
 ```c
 int llama_infer(
-    void * model,
     void * ctx,
     const char * prompt,
     char * out,
-    char * out,
-    size_t out_size
+    size_t out_size,
+    int32_t * out_written
 );
 ```
 
@@ -166,7 +172,7 @@ int llama_infer(
 | `llama_context*` | `llama_create_context` | `llama_remove_context` |
 | Output Buffer | caller allocated | caller frees |
 
-No adapter-owned global allocations.
+The adapter does not hold cross-context shared mutable state.
 
 ---
 
@@ -183,7 +189,7 @@ No adapter-owned global allocations.
 
 - Uses greedy decoding (simple & deterministic)
 - Minimal memory copies
-- No dynamic allocations inside hot path
+- Dynamic allocations still occur for token/vector management; this adapter optimizes for clarity and correctness first
 - Respects llama.cpp batching rules
 
 This is intentionally a **simple reference runtime**, not a feature-complete server.
@@ -200,6 +206,7 @@ LLAMA_ADAPTER_ERR_INVALID_ARG
 LLAMA_ADAPTER_ERR_LOAD_MODEL
 LLAMA_ADAPTER_ERR_NOT_FOUND
 LLAMA_ADAPTER_ERR_IO
+LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL
 LLAMA_ADAPTER_ERR_OUT_OF_MEMORY
 LLAMA_ADAPTER_ERR_UNKNOWN
 ```
@@ -275,4 +282,3 @@ Project license MIT.
 
 - llama.cpp authors
 - GGML / GGUF ecosystem
-- You — for designing a surprisingly clean adapter 😉

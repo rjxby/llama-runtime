@@ -10,19 +10,19 @@ namespace LlamaRuntime.Presentation.Grpc.Services;
 public class GeneratorService : Generator.GeneratorBase
 {
     private readonly ILogger<GeneratorService> _logger;
-    private readonly ILoadedModelAccessor _accessor;
-    private readonly ILlamaProvider _provider;
+    private readonly IHostedModelStore _hostedModelStore;
+    private readonly IInferenceExecutor _inferenceExecutor;
     private readonly LlamaNativeOptions _nativeOptions;
 
     public GeneratorService(
         ILogger<GeneratorService> logger,
-        ILoadedModelAccessor accessor,
-        ILlamaProvider provider,
+        IHostedModelStore hostedModelStore,
+        IInferenceExecutor inferenceExecutor,
         IOptions<LlamaNativeOptions> nativeOptions)
     {
         _logger = logger;
-        _accessor = accessor;
-        _provider = provider;
+        _hostedModelStore = hostedModelStore;
+        _inferenceExecutor = inferenceExecutor;
         _nativeOptions = nativeOptions?.Value ?? throw new ArgumentNullException(nameof(nativeOptions));
     }
 
@@ -41,16 +41,14 @@ public class GeneratorService : Generator.GeneratorBase
         var ct = context.CancellationToken;
         _logger.LogInformation("Generate request received (request_id={RequestId})", request.RequestId);
 
-        var model = _accessor.Model;
-        if (model == null)
+        if (!_hostedModelStore.TryGetLoadedModel(out _))
         {
-            _logger.LogWarning("Model not loaded");
-            throw new RpcException(new Status(StatusCode.Unavailable, "Model not loaded"));
+            throw CreateModelStateException();
         }
 
         try
         {
-            var result = await _provider.InferAsync(model, request.Prompt, ct).ConfigureAwait(false);
+            var result = await _inferenceExecutor.InferAsync(request.Prompt, ct).ConfigureAwait(false);
 
             return new GenerateReply
             {
@@ -67,10 +65,22 @@ public class GeneratorService : Generator.GeneratorBase
             _logger.LogWarning(ex, "Prompt budget exceeded");
             throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
+        catch (OutputBufferExceededException ex)
+        {
+            _logger.LogWarning(ex, "Inference output exceeded configured buffer");
+            throw new RpcException(new Status(StatusCode.ResourceExhausted, ex.Message));
+        }
+        catch (InferenceQueueRejectedException ex)
+        {
+            _logger.LogWarning(ex, "Inference queue rejected request");
+            throw new RpcException(new Status(StatusCode.ResourceExhausted, ex.Message));
+        }
         catch (Exception ex) when (ex is ModelNotFoundException or LlamaRuntime.Engine.Contracts.InferenceException)
         {
             _logger.LogError(ex, "Inference failed");
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            throw ex is ModelNotFoundException
+                ? CreateModelStateException()
+                : new RpcException(new Status(StatusCode.Internal, ex.Message));
         }
         catch (Exception ex)
         {
@@ -86,16 +96,27 @@ public class GeneratorService : Generator.GeneratorBase
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Prompt is required."));
         }
 
-        var model = _accessor.Model;
-        if (model == null)
+        if (!_hostedModelStore.TryGetLoadedModel(out _))
         {
-            _logger.LogWarning("Model not loaded");
-            throw new RpcException(new Status(StatusCode.Unavailable, "Model not loaded"));
+            throw CreateModelStateException();
         }
 
         var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
         var maxAllowedInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
-        var tokenCount = await _provider.CountTokensAsync(model, request.Prompt, context.CancellationToken).ConfigureAwait(false);
+        int tokenCount;
+
+        try
+        {
+            tokenCount = await _inferenceExecutor.CountTokensAsync(request.Prompt, context.CancellationToken).ConfigureAwait(false);
+        }
+        catch (InferenceQueueRejectedException ex)
+        {
+            throw new RpcException(new Status(StatusCode.ResourceExhausted, ex.Message));
+        }
+        catch (ModelNotFoundException)
+        {
+            throw CreateModelStateException();
+        }
 
         return new EstimateTokensReply
         {
@@ -105,5 +126,20 @@ public class GeneratorService : Generator.GeneratorBase
             MaxAllowedInputTokens = maxAllowedInputTokens,
             Fits = tokenCount <= maxAllowedInputTokens
         };
+    }
+
+    private RpcException CreateModelStateException()
+    {
+        var snapshot = _hostedModelStore.GetSnapshot();
+        var (statusCode, message) = snapshot.State switch
+        {
+            HostedModelState.Loading => (StatusCode.Unavailable, "Model is still loading."),
+            HostedModelState.Failed => (StatusCode.Unavailable, snapshot.FailureMessage ?? "Model failed to load."),
+            HostedModelState.Stopping => (StatusCode.Unavailable, "Model is stopping."),
+            _ => (StatusCode.Unavailable, "Model not loaded.")
+        };
+
+        _logger.LogWarning("Model unavailable (state={State})", snapshot.State);
+        return new RpcException(new Status(statusCode, message));
     }
 }

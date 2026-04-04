@@ -27,15 +27,16 @@ public sealed class LlamaProvider : ILlamaProvider
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<IEngineModel> LoadModelAsync(string path, CancellationToken cancellationToken = default)
+    public Task<IEngineModel> LoadModelAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         if (string.IsNullOrEmpty(path)) throw new ArgumentException("Path is null or empty", nameof(path));
+        cancellationToken.ThrowIfCancellationRequested();
 
         LlamaModelHandle modelHandle;
         try
         {
-            modelHandle = await Task.Run(() => _native.LoadModel(path), cancellationToken).ConfigureAwait(false);
+            modelHandle = _native.LoadModel(path);
         }
         catch (Exception ex)
         {
@@ -45,18 +46,20 @@ public sealed class LlamaProvider : ILlamaProvider
 
         var model = new EngineModel(path, modelHandle);
         _logger.LogInformation("Model loaded (path={Path})", path);
-        return model;
+        return Task.FromResult<IEngineModel>(model);
     }
 
-    public async Task UnloadModelAsync(IEngineModel model, CancellationToken cancellationToken = default)
+    public Task UnloadModelAsync(IEngineModel model, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (model == null) return;
+        if (model == null) return Task.CompletedTask;
+        cancellationToken.ThrowIfCancellationRequested();
 
         _contextManager.ReleaseModelResources(model);
 
-        try { await Task.Run(() => model.Dispose(), cancellationToken).ConfigureAwait(false); }
+        try { model.Dispose(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing model {Model}", model.Id); }
+        return Task.CompletedTask;
     }
 
     public async Task<int> CountTokensAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
@@ -92,6 +95,11 @@ public sealed class LlamaProvider : ILlamaProvider
         }
         catch (NativeException ex)
         {
+            if (ex is NativeBufferTooSmallException)
+            {
+                throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
+            }
+
             throw new InferenceException(CreateInferenceMessage(ex), ex);
         }
     }
@@ -126,6 +134,7 @@ public sealed class LlamaProvider : ILlamaProvider
         {
             NativeOutOfMemoryException => "Inference failed because the native runtime ran out of memory.",
             NativeIOException or NativeInferException => "Inference failed in the native runtime.",
+            NativeBufferTooSmallException => "Inference output exceeded the configured native buffer size.",
             _ => "Inference failed."
         };
     }

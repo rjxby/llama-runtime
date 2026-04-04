@@ -11,5 +11,6 @@ public enum NativeError : int
     NotImplemented = 6,
     NotFound = 7,
     Io = 8,
+    BufferTooSmall = 9,
     Unknown = 100
 }
