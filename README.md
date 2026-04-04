@@ -1,6 +1,6 @@
 # llama-runtime
 
-A native-first, secure, **gRPC-based LLM inference runtime** built on top of `llama.cpp`.
+A native-first, single-model, **gRPC-based LLM inference runtime** built on top of `llama.cpp`.
 
 ---
 
@@ -28,11 +28,11 @@ A native-first, secure, **gRPC-based LLM inference runtime** built on top of `ll
 
 ## Overview
 
-`llama-runtime` is a high-performance inference server designed for local and edge deployments. It pairs the raw performance of `llama.cpp` with a production-ready, single-file **gRPC runtime**:
+`llama-runtime` is a high-performance inference server designed for local and edge deployments. It pairs the raw performance of `llama.cpp` with a single-file **gRPC runtime** that intentionally hosts one model per process:
 
 > **`llama-runtime-grpc`**
 
-This runtime makes it straightforward to embed LLM inference into .NET and polyglot systems with strong typing, low latency, and predictable performance.
+This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface.
 
 ---
 
@@ -43,7 +43,9 @@ This runtime makes it straightforward to embed LLM inference into .NET and polyg
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
-* **Production-oriented** — request queueing, predictable memory usage, and strong contracts.
+* **Bounded concurrency** — request queueing, worker-count limits, and per-request execution timeouts.
+* **Explicit lifecycle** — startup model loading, readiness state transitions, and deterministic shutdown unload.
+* **Strong contracts** — prompt-budget enforcement, structured native error mapping, and health checks tied to model state.
 
 ---
 
@@ -98,11 +100,11 @@ dist/
 make llama-runtime-grpc-run
 ```
 
-You can set the model path using an environment variable or your `.env` file:
+You can set the hosted model path using an environment variable or your `.env` file:
 
 ```bash
 # example override
-HostedModel__ModelPath=/absolute/path/to/your/model.guff make llama-runtime-grpc-run
+HostedModel__ModelPath=/absolute/path/to/your/model.gguf make llama-runtime-grpc-run
 ```
 
 ---
@@ -166,13 +168,13 @@ make run-llama-rest-server
 make bench-llama-rest
 ```
 
-Benchmarks include latency and throughput comparisons. Use them to validate improvements or sizing decisions for edge deployments.
+Benchmarks include latency and throughput comparisons. Use them to validate queue sizing, worker counts, and deployment tradeoffs.
 
 ---
 
 ## Configuration
 
-All required environment variables live in platform-specific env files:
+Core environment variables usually live in platform-specific env files:
 
 * `.env.macos`
 * `.env.linux`
@@ -186,7 +188,17 @@ DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
 ```
 
-You can also supply configuration via standard environment variables at runtime or a `.env` file loader in your process.
+You can also supply configuration via standard environment variables at runtime. Important runtime settings:
+
+```env
+HostedModel__ModelPath=/absolute/path/to/model.gguf
+Inference__ChannelCapacity=100
+Inference__WorkerCount=4
+Inference__AcquireTimeout=00:00:30
+Inference__EnableStartupWarmup=true
+```
+
+The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Cancellation is immediate while queued and best-effort once native inference has started.
 
 ---
 
@@ -194,7 +206,8 @@ You can also supply configuration via standard environment variables at runtime 
 
 * **Model not found** — ensure `HostedModel__ModelPath` points to an existing GGUF file or place `model.gguf` inside `models/`.
 * **macOS: permission denied / quarantined** — see the macOS Gatekeeper section above.
-* **Logs** — the runtime emits structured logs. Check stdout/stderr for the runtime and native adapter logs.
+* **Queue rejection / timeout** — tune `Inference__ChannelCapacity`, `Inference__WorkerCount`, and `Inference__AcquireTimeout`.
+* **Logs** — the runtime emits structured managed logs. Native adapter failures are mapped into stable error codes.
 
 If you hit an obscure issue, include the `dotnet` runtime logs and the native adapter stderr when filing an issue.
 
@@ -216,10 +229,16 @@ Third-party notices:
 
 ---
 
+## Architecture Notes
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime ownership, threading, and lifecycle details.
+
+---
+
 ## Why gRPC?
 
 * **Strong contracts** — type-safe, well-defined service interfaces.
 * **First-class .NET support** — native integration with ASP.NET Core.
-* **Stable inference on limited resources** — request queueing prevents memory exhaustion and yields predictable performance under load.
+* **Stable inference on limited resources** — bounded queueing and worker limits keep concurrency explicit.
 
-This runtime is intentionally **boring and fast** — optimized for reliability and predictable latency in edge and local deployments.
+This runtime is intentionally narrow: one hosted model, gRPC only, greedy generation, and explicit operational limits.

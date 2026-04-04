@@ -10,6 +10,8 @@ public class BenchmarkOptions
 
     public BenchmarkMode Mode { get; set; } = BenchmarkMode.LlamaRuntimeGrpc;
 
+    public string GrpcUrl { get; set; } = "http://localhost:5000";
+
     public string? LlamaRestUrl { get; set; }
 
     public string? ApiKey { get; set; }

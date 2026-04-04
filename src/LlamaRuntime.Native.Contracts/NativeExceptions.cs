@@ -46,6 +46,11 @@ public class NativeIOException : NativeException
     public NativeIOException(string m) : base(NativeError.Io, m) { }
 }
 
+public class NativeBufferTooSmallException : NativeException
+{
+    public NativeBufferTooSmallException(string m) : base(NativeError.BufferTooSmall, m) { }
+}
+
 public class NativeUnknownException : NativeException
 {
     public NativeUnknownException(string m) : base(NativeError.Unknown, m) { }

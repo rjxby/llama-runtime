@@ -17,6 +17,8 @@ int to_public_error(llama_adapter::Error error) noexcept {
     return LLAMA_ADAPTER_ERR_OUT_OF_MEMORY;
   case llama_adapter::Error::IO:
     return LLAMA_ADAPTER_ERR_IO;
+  case llama_adapter::Error::BUFFER_TOO_SMALL:
+    return LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL;
   case llama_adapter::Error::UNKNOWN:
   default:
     return LLAMA_ADAPTER_ERR_UNKNOWN;

@@ -24,17 +24,7 @@ public sealed class LlamaNative : ILlamaNative
             throw new ArgumentException($"Library path must be provided", nameof(_options.NativeLibraryPath));
 
         _loader = new NativeLoader(_options.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
-
-
-        NativeHandleReleaser.Register(
-            releaseModel: ptr =>
-            {
-                try { NativeMethods.llama_unload_model(ptr); } catch { }
-            },
-            releaseContext: ptr =>
-            {
-                try { NativeMethods.llama_remove_context(ptr); } catch { }
-            });
+        NativeRuntimeBindings.Initialize(_loader.Handle);
 
         _logger.LogInformation("NativeLibrary initialized");
     }
@@ -115,11 +105,6 @@ public sealed class LlamaNative : ILlamaNative
         var sb = new StringBuilder(_options.InferenceBufferSize);
         var rc = NativeMethods.llama_infer(ctx, prompt, sb, (UIntPtr)sb.Capacity, out var outWritten);
 
-        if (((NativeError)rc == NativeError.Ok || (NativeError)rc == NativeError.InvalidArgument) && outWritten > sb.Capacity)
-        {
-            _logger.LogWarning("Response truncated. Required size: {Required}, Buffer size: {Buffer}", outWritten, sb.Capacity);
-        }
-
         ThrowIfError(rc, "Infer");
         return sb.ToString();
     }
@@ -139,6 +124,7 @@ public sealed class LlamaNative : ILlamaNative
             case NativeError.NotImplemented: throw new NativeNotImplementedException(msg);
             case NativeError.NotFound: throw new NativeNotFoundException(msg);
             case NativeError.Io: throw new NativeIOException(msg);
+            case NativeError.BufferTooSmall: throw new NativeBufferTooSmallException(msg);
             default: throw new NativeUnknownException(msg);
         }
     }

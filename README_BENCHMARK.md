@@ -42,8 +42,9 @@ The benchmark harness supports **two modes**: `grpc` and `llama-rest`.
 * `BENCH_ITERATIONS` — number of requests to send (default: 50)
 * `BENCH_CONCURRENCY` — number of concurrent requests (default: 1)
 * `BENCH_PROMPT` — text prompt to send (default story prompt)
+* `BENCH_GRPCURL` — absolute gRPC base URL for the runtime (default: `http://localhost:5000`)
 * `BENCH_OUTPUT_FILE` — (Optional) Path to save CSV results. If unset, it generates `benchmark_{mode}_{date}_{counter}.csv`.
-* `BENCHMARK_API_KEY` — **Required for gRPC.** API key matching `ApiKeys__Keys__...` in service config.
+* `BENCH_APIKEY` — **Required for gRPC.** API key matching `ApiKeys__Keys__...` in service config.
 
 ### Run gRPC Benchmark
 

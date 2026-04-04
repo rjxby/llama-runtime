@@ -13,8 +13,13 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ApiKeys:Keys:0"] = ApiKey,
+                ["HostedModel:ModelPath"] = "test-model.gguf",
                 ["Llama:Native:ContextSize"] = "32",
-                ["Llama:Native:GenerationMaxNewTokens"] = "8"
+                ["Llama:Native:GenerationMaxNewTokens"] = "8",
+                ["Inference:ChannelCapacity"] = "4",
+                ["Inference:WorkerCount"] = "2",
+                ["Inference:AcquireTimeout"] = "00:00:01",
+                ["Inference:EnableStartupWarmup"] = "false"
             });
         });
         builder.ConfigureServices(services =>
