@@ -2,26 +2,26 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 using LlamaRuntime.Engine.Contracts;
 using LlamaRuntime.Presentation.Grpc.Configuration;
-using LlamaRuntime.Presentation.Grpc.Services;
+using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.HostedServices;
 
-public sealed class QueuedInferenceExecutor : BackgroundService, IInferenceExecutor
+public sealed class QueuedInferenceCoordinator : BackgroundService
 {
     private readonly Channel<IInferenceWorkItem> _channel;
     private readonly ILlamaProvider _provider;
-    private readonly IHostedModelStore _hostedModelStore;
-    private readonly ILogger<QueuedInferenceExecutor> _logger;
+    private readonly IHostedModelStateReader _hostedModelReader;
+    private readonly ILogger<QueuedInferenceCoordinator> _logger;
     private readonly InferenceOptions _options;
 
-    public QueuedInferenceExecutor(
+    public QueuedInferenceCoordinator(
         ILlamaProvider provider,
-        IHostedModelStore hostedModelStore,
+        IHostedModelStateReader hostedModelReader,
         IOptions<InferenceOptions> options,
-        ILogger<QueuedInferenceExecutor> logger)
+        ILogger<QueuedInferenceCoordinator> logger)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-        _hostedModelStore = hostedModelStore ?? throw new ArgumentNullException(nameof(hostedModelStore));
+        _hostedModelReader = hostedModelReader ?? throw new ArgumentNullException(nameof(hostedModelReader));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
 
@@ -108,7 +108,7 @@ public sealed class QueuedInferenceExecutor : BackgroundService, IInferenceExecu
                 continue;
             }
 
-            if (!_hostedModelStore.TryGetLoadedModel(out var model) || model == null)
+            if (!_hostedModelReader.TryGetLoadedModel(out var model) || model == null)
             {
                 workItem.TrySetException(CreateModelUnavailableException());
                 continue;
@@ -137,10 +137,11 @@ public sealed class QueuedInferenceExecutor : BackgroundService, IInferenceExecu
 
     private ModelNotFoundException CreateModelUnavailableException()
     {
-        var snapshot = _hostedModelStore.GetSnapshot();
+        var snapshot = _hostedModelReader.GetSnapshot();
         return snapshot.State switch
         {
             HostedModelState.Loading => new ModelNotFoundException("Model is still loading."),
+            HostedModelState.WarmingUp => new ModelNotFoundException("Model is warming up."),
             HostedModelState.Failed => new ModelNotFoundException(snapshot.FailureMessage ?? "Model failed to load."),
             HostedModelState.Stopping => new ModelNotFoundException("Model is stopping."),
             _ => new ModelNotFoundException("Model not loaded.")

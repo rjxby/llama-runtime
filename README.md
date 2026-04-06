@@ -44,7 +44,7 @@ This runtime is optimized for predictable serving: bounded queueing, pooled cont
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
 * **Bounded concurrency** — request queueing, worker-count limits, and per-request execution timeouts.
-* **Explicit lifecycle** — startup model loading, readiness state transitions, and deterministic shutdown unload.
+* **Explicit lifecycle** — startup model loading, mandatory warm-up before readiness, and deterministic shutdown unload.
 * **Strong contracts** — prompt-budget enforcement, structured native error mapping, and health checks tied to model state.
 
 ---
@@ -205,10 +205,10 @@ HostedModel__ModelPath=/absolute/path/to/model.gguf
 Inference__ChannelCapacity=100
 Inference__WorkerCount=4
 Inference__AcquireTimeout=00:00:30
-Inference__EnableStartupWarmup=true
+Inference__StartupWarmupPrompt=Hello
 ```
 
-The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Cancellation is immediate while queued and best-effort once native inference has started.
+The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
 
 ---
 

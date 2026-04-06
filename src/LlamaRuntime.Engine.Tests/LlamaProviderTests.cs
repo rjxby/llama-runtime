@@ -15,9 +15,6 @@ public sealed class LlamaProviderTests
     private static LlamaModelHandle CreateModelHandle() =>
         LlamaModelHandle.FromIntPtr(new IntPtr(1));
 
-    private static LlamaContextHandle CreateContextHandle(int id) =>
-        LlamaContextHandle.FromIntPtr(new IntPtr(id));
-
     private static LlamaProvider CreateProvider(
         Mock<ILlamaNative> nativeMock,
         Mock<ILlamaContextManager> contextManagerMock,
@@ -71,17 +68,15 @@ public sealed class LlamaProviderTests
     public async Task InferAsync_Uses_Sessions()
     {
         var modelHandle = CreateModelHandle();
-        var ctxHandle = CreateContextHandle(1);
 
         var native = new Mock<ILlamaNative>();
         var contextManager = new Mock<ILlamaContextManager>();
-        var sessionFactory = contextManager.As<IInferenceSessionFactory>();
         var session = new Mock<IInferenceSession>();
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(modelHandle);
 
-        sessionFactory
+        contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
 
@@ -99,7 +94,7 @@ public sealed class LlamaProviderTests
         var result = await provider.InferAsync(model, "hi");
 
         Assert.Equal("ok", result);
-        sessionFactory.Verify(m => m.CreateSessionAsync(model, It.IsAny<CancellationToken>()), Times.Once);
+        contextManager.Verify(m => m.CreateSessionAsync(model, It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.CountTokensAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.InferAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -127,13 +122,12 @@ public sealed class LlamaProviderTests
     {
         var native = new Mock<ILlamaNative>();
         var contextManager = new Mock<ILlamaContextManager>();
-        var sessionFactory = contextManager.As<IInferenceSessionFactory>();
         var session = new Mock<IInferenceSession>();
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
 
-        sessionFactory
+        contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
 
@@ -154,13 +148,12 @@ public sealed class LlamaProviderTests
     {
         var native = new Mock<ILlamaNative>();
         var contextManager = new Mock<ILlamaContextManager>();
-        var sessionFactory = contextManager.As<IInferenceSessionFactory>();
         var session = new Mock<IInferenceSession>();
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
 
-        sessionFactory
+        contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
 
@@ -182,13 +175,12 @@ public sealed class LlamaProviderTests
     {
         var native = new Mock<ILlamaNative>();
         var contextManager = new Mock<ILlamaContextManager>();
-        var sessionFactory = contextManager.As<IInferenceSessionFactory>();
         var session = new Mock<IInferenceSession>();
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
 
-        sessionFactory
+        contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
 

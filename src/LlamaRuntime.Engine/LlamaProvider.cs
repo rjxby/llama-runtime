@@ -68,7 +68,7 @@ public sealed class LlamaProvider : ILlamaProvider
         if (model == null) throw new ArgumentNullException(nameof(model));
         if (prompt == null) throw new ArgumentNullException(nameof(prompt));
 
-        await using var session = await CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
+        await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
         return await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
@@ -80,7 +80,7 @@ public sealed class LlamaProvider : ILlamaProvider
 
         try
         {
-            await using var session = await CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
+            await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
             var promptTokens = await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
             var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
             var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
@@ -102,19 +102,6 @@ public sealed class LlamaProvider : ILlamaProvider
 
             throw new InferenceException(CreateInferenceMessage(ex), ex);
         }
-    }
-
-    public async Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken ct = default)
-    {
-        ThrowIfDisposed();
-        if (model == null) throw new ArgumentNullException(nameof(model));
-
-        if (_contextManager is IInferenceSessionFactory factory)
-        {
-            return await factory.CreateSessionAsync(model, ct).ConfigureAwait(false);
-        }
-
-        throw new NotSupportedException("The context manager does not support sessions.");
     }
 
     private void ThrowIfDisposed()

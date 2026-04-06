@@ -1,9 +1,8 @@
-using System.Threading;
 using LlamaRuntime.Engine.Contracts;
 
-namespace LlamaRuntime.Engine;
+namespace LlamaRuntime.Presentation.Grpc.ModelHosting;
 
-public sealed class HostedModelStore : IHostedModelStore
+public sealed class HostedModelStore : IHostedModelStateReader, IHostedModelStateWriter
 {
     private readonly Lock _gate = new();
     private HostedModelSnapshot _snapshot = new(HostedModelState.NotLoaded, null);
@@ -30,6 +29,16 @@ public sealed class HostedModelStore : IHostedModelStore
         lock (_gate)
         {
             _snapshot = new HostedModelSnapshot(HostedModelState.Loading, null);
+        }
+    }
+
+    public void SetWarmingUp(IEngineModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        lock (_gate)
+        {
+            _snapshot = new HostedModelSnapshot(HostedModelState.WarmingUp, model);
         }
     }
 

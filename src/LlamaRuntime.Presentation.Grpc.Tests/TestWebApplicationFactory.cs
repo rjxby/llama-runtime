@@ -18,8 +18,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 ["Llama:Native:GenerationMaxNewTokens"] = "8",
                 ["Inference:ChannelCapacity"] = "4",
                 ["Inference:WorkerCount"] = "2",
-                ["Inference:AcquireTimeout"] = "00:00:01",
-                ["Inference:EnableStartupWarmup"] = "false"
+                ["Inference:AcquireTimeout"] = "00:00:01"
             });
         });
         builder.ConfigureServices(services =>

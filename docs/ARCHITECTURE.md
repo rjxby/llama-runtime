@@ -10,8 +10,8 @@
 ## Ownership and lifecycle
 
 - The native library is loaded once per process and reused for the lifetime of the host process.
-- A single hosted model is loaded at startup and unloaded during shutdown.
-- Model state is explicit: `NotLoaded`, `Loading`, `Loaded`, `Failed`, `Stopping`.
+- A single hosted model is loaded at startup, warmed once, and unloaded during shutdown.
+- Model state is explicit: `NotLoaded`, `Loading`, `WarmingUp`, `Loaded`, `Failed`, `Stopping`.
 - Contexts are pooled per loaded model and reset before reuse.
 
 ## Concurrency model
@@ -20,12 +20,13 @@
 - Worker count is controlled by `Inference:WorkerCount`.
 - Queue backpressure and execution timeout are controlled by `Inference:AcquireTimeout`.
 - Requests can be cancelled while queued. Once native inference starts, cancellation is best-effort because `llama.cpp` inference is synchronous in this runtime.
+- Each request receives its own isolated inference session backed by one leased context from the pool. Contexts are reset before reuse.
 
 ## Runtime contract
 
 - Only one model is hosted at a time.
 - gRPC is the only serving interface.
-- Readiness is healthy only when the model is fully loaded.
+- Readiness is healthy only when the model is fully loaded and startup warm-up has completed.
 - Prompt budget is enforced before generation using `ContextSize - GenerationMaxNewTokens`.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
 

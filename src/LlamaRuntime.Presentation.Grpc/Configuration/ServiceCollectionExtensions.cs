@@ -1,14 +1,12 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 using LlamaRuntime.Engine;
-using LlamaRuntime.Engine.Contracts;
 using LlamaRuntime.Native;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
-using LlamaRuntime.Presentation.Grpc.Services;
+using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.Configuration;
 
@@ -18,17 +16,19 @@ public static class ServiceCollectionExtensions
     {
         services.AddLlamaNative();
         services.AddLlamaProvider();
-        services.AddSingleton<IHostedModelStore, HostedModelStore>();
+        services.AddSingleton<HostedModelStore>();
+        services.AddSingleton<IHostedModelStateReader>(sp => sp.GetRequiredService<HostedModelStore>());
+        services.AddSingleton<IHostedModelStateWriter>(sp => sp.GetRequiredService<HostedModelStore>());
         services.AddHostedService<ModelLoaderWorker>();
-        services.AddSingleton<QueuedInferenceExecutor>();
-        services.AddSingleton<IInferenceExecutor>(sp => sp.GetRequiredService<QueuedInferenceExecutor>());
-        services.AddHostedService(sp => sp.GetRequiredService<QueuedInferenceExecutor>());
+        services.AddSingleton<QueuedInferenceCoordinator>();
+        services.AddHostedService(sp => sp.GetRequiredService<QueuedInferenceCoordinator>());
 
         services.AddOptions<InferenceOptions>()
                 .BindConfiguration(InferenceOptions.SectionName)
                 .Validate(o => o.ChannelCapacity > 0, $"{nameof(InferenceOptions.ChannelCapacity)} must be greater than zero")
                 .Validate(o => o.WorkerCount > 0, $"{nameof(InferenceOptions.WorkerCount)} must be greater than zero")
                 .Validate(o => o.AcquireTimeout > TimeSpan.Zero, $"{nameof(InferenceOptions.AcquireTimeout)} must be greater than zero")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.StartupWarmupPrompt), $"{nameof(InferenceOptions.StartupWarmupPrompt)} must be set")
                 .ValidateOnStart();
 
         return services;

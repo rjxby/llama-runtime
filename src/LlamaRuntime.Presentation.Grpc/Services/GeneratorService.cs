@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using LlamaRuntime.Engine.Contracts;
 using Microsoft.Extensions.Options;
 using LlamaRuntime.Native.Contracts.Configuration;
+using LlamaRuntime.Presentation.Grpc.HostedServices;
+using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.Services;
 
@@ -10,19 +12,19 @@ namespace LlamaRuntime.Presentation.Grpc.Services;
 public class GeneratorService : Generator.GeneratorBase
 {
     private readonly ILogger<GeneratorService> _logger;
-    private readonly IHostedModelStore _hostedModelStore;
-    private readonly IInferenceExecutor _inferenceExecutor;
+    private readonly IHostedModelStateReader _hostedModelReader;
+    private readonly QueuedInferenceCoordinator _inferenceCoordinator;
     private readonly LlamaNativeOptions _nativeOptions;
 
     public GeneratorService(
         ILogger<GeneratorService> logger,
-        IHostedModelStore hostedModelStore,
-        IInferenceExecutor inferenceExecutor,
+        IHostedModelStateReader hostedModelReader,
+        QueuedInferenceCoordinator inferenceCoordinator,
         IOptions<LlamaNativeOptions> nativeOptions)
     {
         _logger = logger;
-        _hostedModelStore = hostedModelStore;
-        _inferenceExecutor = inferenceExecutor;
+        _hostedModelReader = hostedModelReader;
+        _inferenceCoordinator = inferenceCoordinator;
         _nativeOptions = nativeOptions?.Value ?? throw new ArgumentNullException(nameof(nativeOptions));
     }
 
@@ -41,14 +43,14 @@ public class GeneratorService : Generator.GeneratorBase
         var ct = context.CancellationToken;
         _logger.LogInformation("Generate request received (request_id={RequestId})", request.RequestId);
 
-        if (!_hostedModelStore.TryGetLoadedModel(out _))
+        if (!_hostedModelReader.TryGetLoadedModel(out _))
         {
             throw CreateModelStateException();
         }
 
         try
         {
-            var result = await _inferenceExecutor.InferAsync(request.Prompt, ct).ConfigureAwait(false);
+            var result = await _inferenceCoordinator.InferAsync(request.Prompt, ct).ConfigureAwait(false);
 
             return new GenerateReply
             {
@@ -96,7 +98,7 @@ public class GeneratorService : Generator.GeneratorBase
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Prompt is required."));
         }
 
-        if (!_hostedModelStore.TryGetLoadedModel(out _))
+        if (!_hostedModelReader.TryGetLoadedModel(out _))
         {
             throw CreateModelStateException();
         }
@@ -107,7 +109,7 @@ public class GeneratorService : Generator.GeneratorBase
 
         try
         {
-            tokenCount = await _inferenceExecutor.CountTokensAsync(request.Prompt, context.CancellationToken).ConfigureAwait(false);
+            tokenCount = await _inferenceCoordinator.CountTokensAsync(request.Prompt, context.CancellationToken).ConfigureAwait(false);
         }
         catch (InferenceQueueRejectedException ex)
         {
@@ -130,10 +132,11 @@ public class GeneratorService : Generator.GeneratorBase
 
     private RpcException CreateModelStateException()
     {
-        var snapshot = _hostedModelStore.GetSnapshot();
+        var snapshot = _hostedModelReader.GetSnapshot();
         var (statusCode, message) = snapshot.State switch
         {
             HostedModelState.Loading => (StatusCode.Unavailable, "Model is still loading."),
+            HostedModelState.WarmingUp => (StatusCode.Unavailable, "Model is warming up."),
             HostedModelState.Failed => (StatusCode.Unavailable, snapshot.FailureMessage ?? "Model failed to load."),
             HostedModelState.Stopping => (StatusCode.Unavailable, "Model is stopping."),
             _ => (StatusCode.Unavailable, "Model not loaded.")
