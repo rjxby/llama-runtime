@@ -94,6 +94,8 @@ dist/
 └── ...
 ```
 
+The package build disables `PublishReadyToRun` by default on all targets. We reproduced a deterministic startup crash in the .NET 10 published runtime with `PublishReadyToRun=true` while the process was loading the native `llama.cpp` stack, so the default package now favors the JIT path for stability. You can still override this for investigation with `PUBLISH_READY_TO_RUN=true make pack`.
+
 ### 3. Run from source
 
 ```bash
@@ -187,6 +189,13 @@ PLATFORM=macos-arm64
 LLAMA_VERSION=b8672
 DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
+```
+
+Packaging overrides:
+
+```env
+PUBLISH_READY_TO_RUN=false
+PUBLISH_SINGLE_FILE=true
 ```
 
 You can also supply configuration via standard environment variables at runtime. Important runtime settings:

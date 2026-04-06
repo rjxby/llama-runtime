@@ -87,6 +87,9 @@ BENCH_GRPCURL ?= http://localhost:5000
 # ------------------------------------------------------------
 LLAMA_RUNTIME_GRPC_PROJECT := src/LlamaRuntime.Presentation.Grpc
 PACKAGE_DIR := dist
+PUBLISH_SINGLE_FILE ?= true
+ENABLE_COMPRESSION_IN_SINGLE_FILE ?= true
+PUBLISH_READY_TO_RUN ?= false
 
 # ------------------------------------------------------------
 # Phony targets
@@ -176,9 +179,9 @@ llama-runtime-grpc-build:
 		-c Release \
 		-r $(DOTNET_RUNTIME) \
 		--self-contained true \
-		/p:PublishSingleFile=true \
-		/p:PublishReadyToRun=true \
-		/p:EnableCompressionInSingleFile=true \
+		/p:PublishSingleFile=$(PUBLISH_SINGLE_FILE) \
+		/p:PublishReadyToRun=$(PUBLISH_READY_TO_RUN) \
+		/p:EnableCompressionInSingleFile=$(ENABLE_COMPRESSION_IN_SINGLE_FILE) \
 		/p:DebugType=None \
 		/p:DebugSymbols=false \
 		-o $(PACKAGE_DIR)
