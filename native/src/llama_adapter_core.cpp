@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cstring>
-#include <fstream>
 #include <stdexcept>
 
 namespace llama_adapter {
+
+#ifndef LLAMA_ADAPTER_SOURCE_VERSION
+#error "LLAMA_ADAPTER_SOURCE_VERSION must be defined by the build"
+#endif
 
 Model::~Model() noexcept { free(); }
 
@@ -270,17 +273,8 @@ Error Context::infer(const char *prompt, char *out, size_t out_size,
   }
 }
 
-bool find_meta_json(std::string &result) {
-  const char *env = std::getenv("LLAMA_ADAPTER_META_JSON");
-  if (!env)
-    return false;
-
-  std::ifstream f(env);
-  if (!f.good())
-    return false;
-
-  result = env;
-  return true;
+const char *source_version() noexcept {
+  return LLAMA_ADAPTER_SOURCE_VERSION;
 }
 
 } // namespace llama_adapter

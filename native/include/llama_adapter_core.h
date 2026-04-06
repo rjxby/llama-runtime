@@ -3,7 +3,6 @@
 #include "llama.h"
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -68,6 +67,6 @@ private:
   int n_past_ = 0;
 };
 
-bool find_meta_json(std::string &result);
+const char *source_version() noexcept;
 
 } // namespace llama_adapter

@@ -31,5 +31,5 @@
 
 ## Compatibility
 
-- The repo is currently pinned to `llama.cpp` release `b7932`.
+- The repo is currently pinned to `llama.cpp` release `b8672`.
 - The native adapter is intended for the pinned vendor version first; compatibility with other revisions is not guaranteed without validation.

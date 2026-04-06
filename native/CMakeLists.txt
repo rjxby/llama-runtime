@@ -23,6 +23,10 @@ if (NOT DEFINED LLAMA_LIBRARY_ROOT)
     message(FATAL_ERROR "LLAMA_LIBRARY_ROOT must be set")
 endif()
 
+if (NOT DEFINED LLAMA_SOURCE_VERSION OR LLAMA_SOURCE_VERSION STREQUAL "")
+    message(FATAL_ERROR "LLAMA_SOURCE_VERSION must be set")
+endif()
+
 
 get_filename_component(LLAMA_INCLUDE_ROOT "${LLAMA_INCLUDE_ROOT}" ABSOLUTE)
 get_filename_component(LLAMA_LIBRARY_ROOT "${LLAMA_LIBRARY_ROOT}" ABSOLUTE)
@@ -42,6 +46,11 @@ target_include_directories(llama_adapter
     PUBLIC
         ${LLAMA_INCLUDE_ROOT}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_definitions(llama_adapter
+    PRIVATE
+        LLAMA_ADAPTER_SOURCE_VERSION="${LLAMA_SOURCE_VERSION}"
 )
 
 # IMPORTANT:

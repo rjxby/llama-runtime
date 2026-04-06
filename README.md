@@ -183,7 +183,8 @@ Example `.env` values (required):
 
 ```env
 PLATFORM=macos-arm64
-LLAMA_VERSION=b7932
+# llama.cpp source/release version embedded into the native adapter
+LLAMA_VERSION=b8672
 DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
 ```
