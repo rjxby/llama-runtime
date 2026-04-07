@@ -1,16 +1,14 @@
-using LlamaRuntime.Native.Contracts;
-
 namespace LlamaRuntime.Engine.Contracts;
 
 /// <summary>
-/// Contract for managing llama_context lifecycles and pools.
+/// Manages per-model context pools and leases isolated sessions for individual requests.
 /// </summary>
 public interface ILlamaContextManager : IDisposable
 {
     /// <summary>
-    /// Executes the provided action within a managed context lease.
+    /// Acquires an isolated session backed by a single pooled context lease.
     /// </summary>
-    Task<TResult> WithContextAsync<TResult>(IEngineModel model, Func<LlamaContextHandle, Task<TResult>> action, CancellationToken cancellationToken = default);
+    Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cleans up any resources associated with the specified model.

@@ -31,7 +31,7 @@ public sealed class LlamaContextManagerTests
     }
 
     [Fact]
-    public async Task WithContextAsync_Context_Is_Reused()
+    public async Task CreateSessionAsync_Context_Is_Reused_After_Session_Disposal()
     {
         var modelHandle = CreateModelHandle();
         var ctxHandle = CreateContextHandle(1);
@@ -43,14 +43,22 @@ public sealed class LlamaContextManagerTests
         var manager = CreateManager(native, poolSize: 1);
         var model = new EngineModel("test", modelHandle);
 
-        await manager.WithContextAsync(model, ctx => Task.FromResult("a"));
-        await manager.WithContextAsync(model, ctx => Task.FromResult("b"));
+        await using (var first = await manager.CreateSessionAsync(model))
+        {
+            await first.CountTokensAsync("a");
+        }
+
+        await using (var second = await manager.CreateSessionAsync(model))
+        {
+            await second.CountTokensAsync("b");
+        }
 
         native.Verify(n => n.CreateContext(modelHandle), Times.Once);
+        native.Verify(n => n.ResetContext(ctxHandle), Times.Once);
     }
 
     [Fact]
-    public async Task WithContextAsync_Concurrent_Requests_Do_Not_Share_Context()
+    public async Task CreateSessionAsync_Concurrent_Requests_Do_Not_Share_Context()
     {
         var modelHandle = CreateModelHandle();
         var contexts = new Queue<LlamaContextHandle>(new[]
@@ -66,11 +74,18 @@ public sealed class LlamaContextManagerTests
         var manager = CreateManager(native, poolSize: 2);
         var model = new EngineModel("test", modelHandle);
 
-        var tasks = Enumerable.Range(0, 2)
-            .Select(_ => manager.WithContextAsync(model, async ctx => {
-                await Task.Delay(50); // simulate work
-                return "hi";
-            }))
+        var sessions = await Task.WhenAll(
+            Enumerable.Range(0, 2)
+                .Select(_ => manager.CreateSessionAsync(model)));
+
+        var tasks = sessions
+            .Select(async session =>
+            {
+                await using (session.ConfigureAwait(false))
+                {
+                    await Task.Delay(50);
+                }
+            })
             .ToArray();
 
         await Task.WhenAll(tasks);
@@ -79,7 +94,7 @@ public sealed class LlamaContextManagerTests
     }
 
     [Fact]
-    public async Task WithContextAsync_When_Model_Not_EngineModel_Throws()
+    public async Task CreateSessionAsync_When_Model_Not_EngineModel_Throws()
     {
         var native = new Mock<ILlamaNative>();
         var manager = CreateManager(native);
@@ -87,6 +102,6 @@ public sealed class LlamaContextManagerTests
         var fakeModel = Mock.Of<IEngineModel>(m => m.Id == "x");
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            manager.WithContextAsync(fakeModel, ctx => Task.FromResult("hi")));
+            manager.CreateSessionAsync(fakeModel));
     }
 }

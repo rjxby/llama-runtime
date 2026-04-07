@@ -1,6 +1,8 @@
 #include "llama_adapter.h"
 #include "llama_adapter_core.h"
 
+#include <cstring>
+
 extern "C" {
 
 namespace {
@@ -32,36 +34,17 @@ int llama_adapter_get_version(char *out, size_t out_size) noexcept {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
 
   try {
-    std::string meta_path;
-    if (!llama_adapter::find_meta_json(meta_path)) {
-      if (out && out_size)
-        out[0] = '\0';
-      return LLAMA_ADAPTER_ERR_NOT_FOUND;
+    const char *version = llama_adapter::source_version();
+    if (!version || version[0] == '\0') {
+      out[0] = '\0';
+      return LLAMA_ADAPTER_ERR_UNKNOWN;
     }
 
-    std::ifstream ifs(meta_path);
-    if (!ifs.good()) {
-      if (out && out_size)
-        out[0] = '\0';
-      return LLAMA_ADAPTER_ERR_IO;
-    }
-
-    std::string json((std::istreambuf_iterator<char>(ifs)), {});
-    auto p = json.find("\"version\"");
-    if (p == std::string::npos)
-      return LLAMA_ADAPTER_ERR_IO;
-
-    p = json.find('"', json.find(':', p));
-    auto q = json.find('"', p + 1);
-    if (p == std::string::npos || q == std::string::npos)
-      return LLAMA_ADAPTER_ERR_IO;
-
-    std::string version = json.substr(p + 1, q - p - 1);
-
-    if (version.size() + 1 > out_size)
-      return LLAMA_ADAPTER_ERR_INVALID_ARG;
-    std::memcpy(out, version.c_str(), version.size());
-    out[version.size()] = '\0';
+    const size_t version_len = std::strlen(version);
+    if (version_len + 1 > out_size)
+      return LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL;
+    std::memcpy(out, version, version_len);
+    out[version_len] = '\0';
 
     return LLAMA_ADAPTER_OK;
   } catch (...) {

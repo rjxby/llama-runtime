@@ -55,8 +55,6 @@ INCLUDE_PATH := $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/include
 
 ARTIFACT_NAME := $(PROJECT)-$(LLAMA_VERSION)-bin-$(PLATFORM).tar.gz
 ARTIFACT_URL := https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/releases/download/$(LLAMA_VERSION)/$(ARTIFACT_NAME)
-
-META_JSON := $(VENDOR_PATH)/meta.json
 SHA_FILE := $(VENDOR_PATH)/SHA256SUMS
 
 MODEL_PATH ?= models/llama.bin
@@ -69,7 +67,6 @@ SHA256SUM := shasum -a 256
 MKDIR := mkdir -p
 TAR := tar
 RM := rm -rf
-DATE_UTC := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # ------------------------------------------------------------
 # Native build
@@ -90,6 +87,9 @@ BENCH_GRPCURL ?= http://localhost:5000
 # ------------------------------------------------------------
 LLAMA_RUNTIME_GRPC_PROJECT := src/LlamaRuntime.Presentation.Grpc
 PACKAGE_DIR := dist
+PUBLISH_SINGLE_FILE ?= true
+ENABLE_COMPRESSION_IN_SINGLE_FILE ?= true
+PUBLISH_READY_TO_RUN ?= false
 
 # ------------------------------------------------------------
 # Phony targets
@@ -140,14 +140,6 @@ vendor/binary:
 # Init
 # ------------------------------------------------------------
 init: vendor/include vendor/binary
-	@sed \
-		-e 's|@PROJECT@|$(PROJECT)|g' \
-		-e 's|@VERSION@|$(LLAMA_VERSION)|g' \
-		-e 's|@PLATFORM@|$(PLATFORM)|g' \
-		-e 's|@ARTIFACT@|$(ARTIFACT_NAME)|g' \
-		-e 's|@SOURCE@|$(ARTIFACT_URL)|g' \
-		-e 's|@GENERATED_AT@|$(DATE_UTC)|g' \
-		meta.json.tmpl > $(META_JSON)
 
 # ------------------------------------------------------------
 # Verify
@@ -163,6 +155,7 @@ native-build:
 	cd $(CMAKE_BUILD_DIR) && cmake .. \
 		-DLLAMA_INCLUDE_ROOT="../vendor/llama/$(LLAMA_VERSION)/include" \
 		-DLLAMA_LIBRARY_ROOT="../vendor/llama/$(LLAMA_VERSION)/$(PLATFORM)/llama-$(LLAMA_VERSION)" \
+		-DLLAMA_SOURCE_VERSION="$(LLAMA_VERSION)" \
 		-DCMAKE_BUILD_TYPE=Release
 	cmake --build $(CMAKE_BUILD_DIR) --config Release
 
@@ -180,13 +173,15 @@ run-llama-rest-server:
 # llama-runtime-grpc
 # ------------------------------------------------------------
 llama-runtime-grpc-build:
+	@echo ">>> Cleaning package dir..."
+	rm -rf $(PACKAGE_DIR)/*
 	dotnet publish $(LLAMA_RUNTIME_GRPC_PROJECT) \
 		-c Release \
 		-r $(DOTNET_RUNTIME) \
 		--self-contained true \
-		/p:PublishSingleFile=true \
-		/p:PublishReadyToRun=true \
-		/p:EnableCompressionInSingleFile=true \
+		/p:PublishSingleFile=$(PUBLISH_SINGLE_FILE) \
+		/p:PublishReadyToRun=$(PUBLISH_READY_TO_RUN) \
+		/p:EnableCompressionInSingleFile=$(ENABLE_COMPRESSION_IN_SINGLE_FILE) \
 		/p:DebugType=None \
 		/p:DebugSymbols=false \
 		-o $(PACKAGE_DIR)

@@ -74,7 +74,7 @@ This adapter intentionally uses the **most portable llama.cpp integration path**
 - Uses official llama.cpp vocab APIs
 - Returns an explicit buffer-too-small error when the caller output buffer is insufficient
 
-The repo is currently validated against the pinned vendor release `b7932`. Other revisions should be treated as unverified until tested.
+The repo is currently validated against the pinned vendor release `b8672`. Other revisions should be treated as unverified until tested.
 
 ---
 
@@ -213,23 +213,16 @@ LLAMA_ADAPTER_ERR_UNKNOWN
 
 ---
 
-## 🧭 Version Metadata Support
+## 🧭 Source Version Support
 
-If environment variable is set:
-
-```
-LLAMA_ADAPTER_META_JSON=/path/meta.json
-```
-
-then:
+`llama_adapter_get_version(buffer)` returns the llama.cpp source/release
+version embedded into the adapter at build time from `LLAMA_VERSION`:
 
 ```c
 llama_adapter_get_version(buffer)
 ```
 
-extracts "version" from the metadata file.
-
-Useful when embedding llama builds.
+This no longer depends on an external metadata file at runtime.
 
 ---
 

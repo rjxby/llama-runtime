@@ -8,7 +8,7 @@ using LlamaRuntime.Native.Contracts;
 
 namespace LlamaRuntime.Engine;
 
-public sealed class LlamaContextManager : ILlamaContextManager, IInferenceSessionFactory
+public sealed class LlamaContextManager : ILlamaContextManager
 {
     private readonly ILlamaNative _native;
     private readonly ILogger<LlamaContextManager> _logger;
@@ -23,33 +23,15 @@ public sealed class LlamaContextManager : ILlamaContextManager, IInferenceSessio
         _defaultPoolSize = options?.Value?.DefaultPoolSize ?? 1;
     }
 
-    public async Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken ct = default)
+    public async Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
-
-        var pool = GetPool(model);
-        var ctx = await pool.AcquireAsync(ct).ConfigureAwait(false);
-
-        return new LlamaSession(_native, ctx, handle => pool.Release(handle));
-    }
-
-    public async Task<TResult> WithContextAsync<TResult>(IEngineModel model, Func<LlamaContextHandle, Task<TResult>> action, CancellationToken cancellationToken = default)
-    {
-        ThrowIfDisposed();
-        if (model == null) throw new ArgumentNullException(nameof(model));
-        if (action == null) throw new ArgumentNullException(nameof(action));
 
         var pool = GetPool(model);
         var ctx = await pool.AcquireAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await action(ctx).ConfigureAwait(false);
-        }
-        finally
-        {
-            pool.Release(ctx);
-        }
+
+        return new LlamaSession(_native, ctx, handle => pool.Release(handle));
     }
 
     private ContextPool GetPool(IEngineModel model)

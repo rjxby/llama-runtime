@@ -23,6 +23,13 @@ int main(int argc, char **argv) {
   assert_ok(rc, "adapter_get_version");
   printf("Adapter version: %s\n", version_str);
 
+  const char *expected_version = getenv("LLAMA_VERSION");
+  if (expected_version && strcmp(version_str, expected_version) != 0) {
+    fprintf(stderr, "FAIL: adapter version mismatch (expected=%s actual=%s)\n",
+            expected_version, version_str);
+    return 1;
+  }
+
   void *model = NULL;
   rc = llama_load_model(model_path, &model);
   assert_ok(rc, "load_model");

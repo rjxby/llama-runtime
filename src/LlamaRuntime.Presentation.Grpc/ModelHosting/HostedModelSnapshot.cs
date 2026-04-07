@@ -1,4 +1,6 @@
-namespace LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts;
+
+namespace LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 public sealed record HostedModelSnapshot(
     HostedModelState State,

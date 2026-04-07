@@ -1,7 +1,7 @@
 namespace LlamaRuntime.Engine.Contracts;
 
 /// <summary>
-/// Represents an isolated inference session (Unit of Work).
+/// Represents an isolated inference session backed by a single leased context.
 /// </summary>
 public interface IInferenceSession : IAsyncDisposable
 {
