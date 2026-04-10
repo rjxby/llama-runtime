@@ -76,7 +76,7 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var workItem = new InferenceWorkItem<T>(operationName, operation);
+        var workItem = new InferenceWorkItem<T>(operationName, operation, cancellationToken);
         using var enqueueCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         enqueueCts.CancelAfter(_options.AcquireTimeout);
 
@@ -108,25 +108,31 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
                 continue;
             }
 
+            if (workItem.CallerCancellationToken.IsCancellationRequested)
+            {
+                workItem.TrySetCanceled(workItem.CallerCancellationToken);
+                continue;
+            }
+
             if (!_hostedModelReader.TryGetLoadedModel(out var model) || model == null)
             {
                 workItem.TrySetException(CreateModelUnavailableException());
                 continue;
             }
 
-            using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-            executionCts.CancelAfter(_options.AcquireTimeout);
+            using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, workItem.CallerCancellationToken);
 
             try
             {
                 await workItem.ExecuteAsync(model, executionCts.Token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException ex) when (!stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (workItem.CallerCancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "Inference worker {WorkerId} timed out while executing {Operation}", workerId, workItem.OperationName);
-                workItem.TrySetException(new InferenceQueueRejectedException(
-                    $"Inference request exceeded the execution timeout of {_options.AcquireTimeout}.",
-                    ex));
+                workItem.TrySetCanceled(workItem.CallerCancellationToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                workItem.TrySetCanceled(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -151,6 +157,7 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
     private interface IInferenceWorkItem
     {
         string OperationName { get; }
+        CancellationToken CallerCancellationToken { get; }
         Task ExecuteAsync(IEngineModel model, CancellationToken cancellationToken);
         void TrySetException(Exception exception);
         void TrySetCanceled(CancellationToken cancellationToken);
@@ -161,13 +168,19 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
         private readonly Func<IEngineModel, CancellationToken, Task<T>> _operation;
         private readonly TaskCompletionSource<T> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public InferenceWorkItem(string operationName, Func<IEngineModel, CancellationToken, Task<T>> operation)
+        public InferenceWorkItem(
+            string operationName,
+            Func<IEngineModel, CancellationToken, Task<T>> operation,
+            CancellationToken callerCancellationToken)
         {
             OperationName = operationName;
             _operation = operation;
+            CallerCancellationToken = callerCancellationToken;
         }
 
         public string OperationName { get; }
+
+        public CancellationToken CallerCancellationToken { get; }
 
         public async Task ExecuteAsync(IEngineModel model, CancellationToken cancellationToken)
         {

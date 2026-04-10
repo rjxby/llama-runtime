@@ -18,7 +18,7 @@
 
 - Requests enter a bounded in-memory queue.
 - Worker count is controlled by `Inference:WorkerCount`.
-- Queue backpressure and execution timeout are controlled by `Inference:AcquireTimeout`.
+- Queue backpressure and queue-admission timeout are controlled by `Inference:AcquireTimeout`.
 - Requests can be cancelled while queued. Once native inference starts, cancellation is best-effort because `llama.cpp` inference is synchronous in this runtime.
 - Each request receives its own isolated inference session backed by one leased context from the pool. Contexts are reset before reuse.
 

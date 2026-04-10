@@ -52,10 +52,17 @@ GITHUB_REPO := llama.cpp
 VENDOR_DIR := vendor
 VENDOR_PATH := $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(PLATFORM)
 INCLUDE_PATH := $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/include
+CACHE_DIR := $(VENDOR_DIR)/cache/$(LLAMA_VERSION)
+CHECKSUMS_DIR := checksums/llama
+CHECKSUMS_FILE := $(CHECKSUMS_DIR)/$(LLAMA_VERSION).sha256
 
 ARTIFACT_NAME := $(PROJECT)-$(LLAMA_VERSION)-bin-$(PLATFORM).tar.gz
 ARTIFACT_URL := https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/releases/download/$(LLAMA_VERSION)/$(ARTIFACT_NAME)
+ARTIFACT_CACHE_PATH := $(CACHE_DIR)/$(ARTIFACT_NAME)
 SHA_FILE := $(VENDOR_PATH)/SHA256SUMS
+HEADERS_ARCHIVE_NAME := llama-$(LLAMA_VERSION)-headers.zip
+HEADERS_ARCHIVE_URL := https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/archive/$(LLAMA_VERSION).zip
+HEADERS_ARCHIVE_PATH := $(CACHE_DIR)/$(HEADERS_ARCHIVE_NAME)
 
 MODEL_PATH ?= models/llama.bin
 
@@ -106,35 +113,57 @@ PUBLISH_READY_TO_RUN ?= false
 # Vendor headers
 # ------------------------------------------------------------
 vendor/include:
-	@if [ -d "$(INCLUDE_PATH)" ] && [ "$$(ls -A $(INCLUDE_PATH))" ]; then \
-		echo ">>> Headers already exist — skipping"; \
-	else \
-		echo ">>> Downloading headers LLAMA_VERSION=$(LLAMA_VERSION)"; \
-		$(MKDIR) $(INCLUDE_PATH); \
-		$(CURL) https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/archive/$(LLAMA_VERSION).zip -o /tmp/$(LLAMA_VERSION).zip; \
-		unzip -q /tmp/$(LLAMA_VERSION).zip -d $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION); \
-		mv $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)/include/* $(INCLUDE_PATH)/; \
-		mv $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)/ggml/include/* $(INCLUDE_PATH)/ || true; \
-		rm -rf $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION); \
-		rm -f /tmp/$(LLAMA_VERSION).zip; \
+	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+		exit 1; \
 	fi
+	@manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+		echo ">>> Missing checksum entry for $(HEADERS_ARCHIVE_NAME) in $(CHECKSUMS_FILE)"; \
+		exit 1; \
+	}; \
+	$(MKDIR) "$(CACHE_DIR)" "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)"; \
+	if [ ! -f "$(HEADERS_ARCHIVE_PATH)" ]; then \
+		echo ">>> Downloading headers LLAMA_VERSION=$(LLAMA_VERSION)"; \
+		$(CURL) "$(HEADERS_ARCHIVE_URL)" -o "$(HEADERS_ARCHIVE_PATH)"; \
+	else \
+		echo ">>> Using cached headers archive $(HEADERS_ARCHIVE_NAME)"; \
+	fi; \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -); \
+	echo ">>> Extracting verified headers LLAMA_VERSION=$(LLAMA_VERSION)"; \
+	rm -rf "$(INCLUDE_PATH)" "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)"; \
+	$(MKDIR) "$(INCLUDE_PATH)"; \
+	unzip -q -o "$(HEADERS_ARCHIVE_PATH)" -d "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)"; \
+	mv "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)/include/"* "$(INCLUDE_PATH)/"; \
+	mv "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)/ggml/include/"* "$(INCLUDE_PATH)/" || true; \
+	rm -rf "$(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/$(GITHUB_REPO)-$(LLAMA_VERSION)"
 
 # ------------------------------------------------------------
 # Vendor binaries
 # ------------------------------------------------------------
 vendor/binary:
-	@if [ -f "$(SHA_FILE)" ]; then \
-		echo ">>> Binary already exists — skipping"; \
-	else \
-		echo ">>> Downloading binary LLAMA_VERSION=$(LLAMA_VERSION) PLATFORM=$(PLATFORM)"; \
-		$(MKDIR) $(VENDOR_PATH); \
-		$(CURL) -o /tmp/$(ARTIFACT_NAME) $(ARTIFACT_URL); \
-		$(TAR) -xf /tmp/$(ARTIFACT_NAME) -C $(VENDOR_PATH); \
-		cd $(VENDOR_PATH) && \
-			find . -type f ! -name 'SHA256SUMS' ! -name 'meta.json' \
-				-exec $(SHA256SUM) {} \; > SHA256SUMS; \
-		rm -f /tmp/$(ARTIFACT_NAME); \
+	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+		exit 1; \
 	fi
+	@manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+		echo ">>> Missing checksum entry for $(ARTIFACT_NAME) in $(CHECKSUMS_FILE)"; \
+		exit 1; \
+	}; \
+	$(MKDIR) "$(CACHE_DIR)"; \
+	if [ ! -f "$(ARTIFACT_CACHE_PATH)" ]; then \
+		echo ">>> Downloading binary LLAMA_VERSION=$(LLAMA_VERSION) PLATFORM=$(PLATFORM)"; \
+		$(CURL) -o "$(ARTIFACT_CACHE_PATH)" "$(ARTIFACT_URL)"; \
+	else \
+		echo ">>> Using cached binary archive $(ARTIFACT_NAME)"; \
+	fi; \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -); \
+	echo ">>> Extracting verified binary LLAMA_VERSION=$(LLAMA_VERSION) PLATFORM=$(PLATFORM)"; \
+	rm -rf "$(VENDOR_PATH)"; \
+	$(MKDIR) "$(VENDOR_PATH)"; \
+	$(TAR) -xf "$(ARTIFACT_CACHE_PATH)" -C "$(VENDOR_PATH)"; \
+	cd "$(VENDOR_PATH)" && \
+		find . -type f ! -name 'SHA256SUMS' ! -name 'meta.json' \
+			-exec $(SHA256SUM) {} \; > SHA256SUMS
 
 # ------------------------------------------------------------
 # Init
@@ -145,7 +174,31 @@ init: vendor/include vendor/binary
 # Verify
 # ------------------------------------------------------------
 verify:
-	cd $(VENDOR_PATH) && $(SHA256SUM) -c SHA256SUMS
+	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(HEADERS_ARCHIVE_PATH)" ]; then \
+		echo ">>> Missing cached headers archive $(HEADERS_ARCHIVE_PATH). Run make init first."; \
+		exit 1; \
+	fi
+	@manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+		echo ">>> Missing checksum entry for $(HEADERS_ARCHIVE_NAME) in $(CHECKSUMS_FILE)"; \
+		exit 1; \
+	}; \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -)
+	@if [ ! -f "$(ARTIFACT_CACHE_PATH)" ]; then \
+		echo ">>> Missing cached binary archive $(ARTIFACT_CACHE_PATH). Run make init first."; \
+		exit 1; \
+	fi
+	@manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+		echo ">>> Missing checksum entry for $(ARTIFACT_NAME) in $(CHECKSUMS_FILE)"; \
+		exit 1; \
+	}; \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -)
+	@if [ -f "$(SHA_FILE)" ]; then \
+		cd "$(VENDOR_PATH)" && $(SHA256SUM) -c SHA256SUMS; \
+	fi
 
 # ------------------------------------------------------------
 # Native build
@@ -196,7 +249,6 @@ pack: native-build llama-runtime-grpc-build
 llama-runtime-grpc-run: pack
 	cd $(PACKAGE_DIR) && \
 	ASPNETCORE_ENVIRONMENT=Development \
-	Logging__LogLevel__Default=Debug \
 	./LlamaRuntime.Presentation.Grpc
 
 # ------------------------------------------------------------

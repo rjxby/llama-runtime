@@ -19,8 +19,8 @@ var app = builder.Build();
 
 app.UseRouting();
 app.UseAuthentication();
-app.UseAuthorization();
 app.UseRateLimiter();
+app.UseAuthorization();
 
 app.MapGrpcService<GeneratorService>();
 
