@@ -15,6 +15,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 ["ApiKeys:Keys:0"] = ApiKey,
                 ["HostedModel:ModelPath"] = "test-model.gguf",
                 ["Llama:Native:ContextSize"] = "32",
+                ["Llama:Native:BatchSize"] = "8",
                 ["Llama:Native:GenerationMaxNewTokens"] = "8",
                 ["Inference:ChannelCapacity"] = "4",
                 ["Inference:WorkerCount"] = "2",

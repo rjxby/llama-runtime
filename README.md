@@ -43,7 +43,7 @@ This runtime is optimized for predictable serving: bounded queueing, pooled cont
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
-* **Bounded concurrency** — request queueing, worker-count limits, and per-request execution timeouts.
+* **Bounded concurrency** — request queueing, worker-count limits, and queue-admission timeouts.
 * **Explicit lifecycle** — startup model loading, mandatory warm-up before readiness, and deterministic shutdown unload.
 * **Strong contracts** — prompt-budget enforcement, structured native error mapping, and health checks tied to model state.
 
@@ -71,10 +71,16 @@ llama.cpp (C/C++)
 
 ### 1. Initialize dependencies
 
-Downloads headers and platform-specific `llama.cpp` binaries.
+Downloads headers and platform-specific `llama.cpp` binaries and verifies the downloaded archives against repo-pinned SHA-256 manifests.
 
 ```bash
 make init
+```
+
+Validate the cached upstream archives again at any time with:
+
+```bash
+make verify
 ```
 
 ### 2. Build the package
@@ -179,7 +185,7 @@ Benchmarks include latency and throughput comparisons. Use them to validate queu
 Core environment variables usually live in platform-specific env files:
 
 * `.env.macos`
-* `.env.linux`
+* `.env` overrides for other supported platforms such as `ubuntu-x64` or `ubuntu-arm64`
 
 Example `.env` values (required):
 
@@ -210,14 +216,27 @@ Inference__StartupWarmupPrompt=Hello
 
 The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
 
+`Inference__AcquireTimeout` controls how long a request may wait to enter the bounded queue. It is not a hard kill timeout for native inference that has already started.
+
+Native runtime settings are validated on startup and the process fails fast if any value is invalid. The current rules are:
+
+```env
+Llama__Native__NativeLibraryPath=required
+Llama__Native__ContextSize=1..65536
+Llama__Native__BatchSize=1..4096 and <= ContextSize
+Llama__Native__MaxTokens=1..262144
+Llama__Native__GenerationMaxNewTokens=1..16384 and < ContextSize
+Llama__Native__InferenceBufferSize=1..16777216
+```
+
 ---
 
 ## Troubleshooting & tips
 
 * **Model not found** — ensure `HostedModel__ModelPath` points to an existing GGUF file or place `model.gguf` inside `models/`.
 * **macOS: permission denied / quarantined** — see the macOS Gatekeeper section above.
-* **Queue rejection / timeout** — tune `Inference__ChannelCapacity`, `Inference__WorkerCount`, and `Inference__AcquireTimeout`.
-* **Logs** — the runtime emits structured managed logs. Native adapter failures are mapped into stable error codes.
+* **Queue rejection / timeout** — tune `Inference__ChannelCapacity`, `Inference__WorkerCount`, and `Inference__AcquireTimeout` for queue admission behavior.
+* **Logs** — the runtime emits structured operational logs without prompt or generated-text payloads. Native adapter failures are mapped into stable error codes.
 
 If you hit an obscure issue, include the `dotnet` runtime logs and the native adapter stderr when filing an issue.
 

@@ -23,22 +23,12 @@ public class LoggingInterceptor : Interceptor
 
         _logger.LogInformation("gRPC Request started: {Method}", methodName);
 
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            _logger.LogDebug("gRPC Request Payload: {Request}", request);
-        }
-
         try
         {
             var response = await continuation(request, context);
             stopwatch.Stop();
 
             _logger.LogInformation("gRPC Request finished: {Method} in {ElapsedMs}ms", methodName, stopwatch.ElapsedMilliseconds);
-
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("gRPC Response Payload: {Response}", response);
-            }
 
             return response;
         }

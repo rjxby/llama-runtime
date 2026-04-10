@@ -68,7 +68,7 @@ public static class ServiceCollectionExtensions
         {
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpCtx =>
             {
-                var key = httpCtx.Request.Headers[rateLimiterOptions.ApiKeyHeaderName].FirstOrDefault() ?? "anonymous";
+                var key = httpCtx.User.FindFirst(AuthConstants.ClaimTypes.ApiKey)?.Value ?? "anonymous";
 
                 var limiterOptions = new TokenBucketRateLimiterOptions
                 {

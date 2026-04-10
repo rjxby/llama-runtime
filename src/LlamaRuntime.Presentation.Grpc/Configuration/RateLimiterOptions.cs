@@ -9,5 +9,4 @@ public class RateLimiterOptions
     public TimeSpan ReplenishmentPeriod { get; set; } = TimeSpan.FromSeconds(1);
     public int QueueLimit { get; set; } = 0;
     public int RejectionStatusCode { get; set; } = 429;
-    public string ApiKeyHeaderName { get; set; } = "x-api-key";
 }
