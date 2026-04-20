@@ -145,6 +145,35 @@ public sealed class QueuedInferenceCoordinatorTests
     }
 
     [Fact]
+    public async Task ModelLoaderWorker_BlankWarmupOutput_Fails_Startup_And_Unloads_Model()
+    {
+        var provider = new Mock<ILlamaProvider>();
+        var store = new HostedModelStore();
+        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
+
+        provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(model);
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
+        provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var worker = new ModelLoaderWorker(
+            NullLogger<ModelLoaderWorker>.Instance,
+            provider.Object,
+            store,
+            store,
+            Options.Create(new HostedModelOptions { ModelPath = "model.gguf" }),
+            Options.Create(new InferenceOptions { StartupWarmupPrompt = "Hello" }));
+
+        var ex = await Assert.ThrowsAsync<EmptyInferenceOutputException>(() => worker.StartAsync(CancellationToken.None));
+
+        Assert.Equal("Inference returned blank output for a text-generation request.", ex.Message);
+        Assert.Equal(HostedModelState.Failed, store.GetSnapshot().State);
+        provider.Verify(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task ModelReadyHealthCheck_ReportsLoadingWarmingUpAndFailedStates()
     {
         var store = new HostedModelStore();

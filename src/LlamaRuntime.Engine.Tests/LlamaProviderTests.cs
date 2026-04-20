@@ -99,6 +99,39 @@ public sealed class LlamaProviderTests
         session.Verify(s => s.InferAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task InferAsync_BlankOutput_ThrowsEmptyInferenceOutputException(string output)
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        var session = new Mock<IInferenceSession>();
+
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+
+        contextManager
+            .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session.Object);
+
+        session
+            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2);
+
+        session
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(output);
+
+        using var provider = CreateProvider(native, contextManager);
+        var model = await provider.LoadModelAsync("model");
+
+        var ex = await Assert.ThrowsAsync<EmptyInferenceOutputException>(() =>
+            provider.InferAsync(model, "hi"));
+
+        Assert.Equal("Inference returned blank output for a text-generation request.", ex.Message);
+    }
+
     [Fact]
     public async Task UnloadModelAsync_Calls_ReleaseModelResources()
     {

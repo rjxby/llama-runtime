@@ -91,7 +91,13 @@ public sealed class LlamaProvider : ILlamaProvider
                     $"Prompt exceeds input budget: {promptTokens} tokens > {maxInputTokens} allowed (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
             }
 
-            return await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+            var result = await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
+            }
+
+            return result;
         }
         catch (NativeException ex)
         {

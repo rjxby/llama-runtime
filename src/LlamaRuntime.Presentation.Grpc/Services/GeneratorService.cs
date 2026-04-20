@@ -62,6 +62,11 @@ public class GeneratorService : Generator.GeneratorBase
         {
             throw new RpcException(new Status(StatusCode.Cancelled, "Request cancelled"));
         }
+        catch (EmptyInferenceOutputException ex)
+        {
+            _logger.LogError(ex, "Inference returned blank output");
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
         catch (PromptBudgetExceededException ex)
         {
             _logger.LogWarning(ex, "Prompt budget exceeded");
