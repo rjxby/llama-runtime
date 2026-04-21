@@ -63,7 +63,6 @@ public sealed class LlamaNative : ILlamaNative
             model,
             _options.ContextSize,
             _options.BatchSize,
-            _options.MaxTokens,
             _options.GenerationMaxNewTokens,
             out var ptr);
         ThrowIfError(rc, "CreateContext");

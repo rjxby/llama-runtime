@@ -222,7 +222,7 @@ Inference__AcquireTimeout=00:00:30
 Inference__StartupWarmupPrompt=Hello
 ```
 
-The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
+The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. `Inference__WorkerCount` controls concurrent inference capacity. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
 
 `Inference__AcquireTimeout` controls how long a request may wait to enter the bounded queue. It is not a hard kill timeout for native inference that has already started.
 
@@ -232,7 +232,6 @@ Native runtime settings are validated on startup and the process fails fast if a
 Llama__Native__NativeLibraryPath=required
 Llama__Native__ContextSize=1..65536
 Llama__Native__BatchSize=1..4096 and <= ContextSize
-Llama__Native__MaxTokens=1..262144
 Llama__Native__GenerationMaxNewTokens=1..16384 and < ContextSize
 Llama__Native__InferenceBufferSize=1..16777216
 ```

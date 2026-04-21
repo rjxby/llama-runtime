@@ -50,7 +50,7 @@ public class GeneratorService : Generator.GeneratorBase
 
         try
         {
-            var result = await _inferenceCoordinator.InferAsync(request.Prompt, ct).ConfigureAwait(false);
+            var result = await _inferenceCoordinator.InferAsync(request.Prompt, ct, request.RequestId).ConfigureAwait(false);
 
             return new GenerateReply
             {

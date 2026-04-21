@@ -81,16 +81,6 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            var promptTokens = await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
-            var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-            var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
-
-            if (promptTokens > maxInputTokens)
-            {
-                throw new PromptBudgetExceededException(
-                    $"Prompt exceeds input budget: {promptTokens} tokens > {maxInputTokens} allowed (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
-            }
-
             var result = await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(result))
             {
@@ -104,6 +94,14 @@ public sealed class LlamaProvider : ILlamaProvider
             if (ex is NativeBufferTooSmallException)
             {
                 throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
+            }
+
+            if (ex is NativeInvalidArgumentException)
+            {
+                var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
+                var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
+                throw new PromptBudgetExceededException(
+                    $"Prompt exceeds input budget: native tokenizer reported more than {maxInputTokens} allowed tokens (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
             }
 
             throw new InferenceException(CreateInferenceMessage(ex), ex);

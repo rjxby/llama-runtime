@@ -37,8 +37,7 @@ Context::Context(Model *model) noexcept : model_ref_(model) {}
 
 Context::~Context() noexcept { free(); }
 
-Error Context::init(int n_ctx, int n_batch, int max_tokens,
-                    int generation_max_new_tokens) {
+Error Context::init(int n_ctx, int n_batch, int generation_max_new_tokens) {
   if (!model_ref_ || !model_ref_->handle())
     return Error::INVALID_ARG;
   try {
@@ -53,7 +52,6 @@ Error Context::init(int n_ctx, int n_batch, int max_tokens,
 
     ctx_n_ctx_ = (p.n_ctx > 0) ? static_cast<int>(p.n_ctx) : 2048;
     ctx_n_batch_ = (p.n_batch > 0) ? static_cast<int>(p.n_batch) : 512;
-    max_tokens_ = (max_tokens > 0) ? max_tokens : 16384;
     generation_max_new_tokens_ =
         (generation_max_new_tokens > 0) ? generation_max_new_tokens : 128;
     n_past_ = 0;
@@ -86,7 +84,8 @@ bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
   if (!model_ref_ || !model_ref_->handle() || !prompt)
     return false;
 
-  const int max_t = (max_tokens_ > 0) ? max_tokens_ : 16384;
+  const auto prompt_len = static_cast<int>(std::strlen(prompt));
+  const int max_t = std::max(ctx_n_ctx_, prompt_len + 8);
   tokens.resize(max_t);
 
   const llama_vocab *vocab = model_ref_->vocab();
@@ -108,11 +107,10 @@ Error Context::count_tokens(const char *prompt, int32_t *token_count) {
     return Error::INVALID_ARG;
 
   try {
-    std::vector<llama_token> tokens;
-    if (!tokenize(prompt, tokens))
+    if (!tokenize(prompt, token_buffer_))
       return Error::IO;
 
-    *token_count = static_cast<int32_t>(tokens.size());
+    *token_count = static_cast<int32_t>(token_buffer_.size());
     return Error::OK;
   } catch (const std::bad_alloc &) {
     return Error::OUT_OF_MEMORY;
@@ -134,16 +132,16 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
   for (int i = 0; i < (int)tokens.size(); i += batch_size) {
     int n_tokens = std::min(batch_size, (int)tokens.size() - i);
 
-    std::vector<llama_pos> pos(n_tokens);
+    pos_buffer_.resize(n_tokens);
     for (int j = 0; j < n_tokens; ++j) {
-      pos[j] = n_past_ + static_cast<llama_pos>(j);
+      pos_buffer_[j] = n_past_ + static_cast<llama_pos>(j);
     }
 
     llama_batch b{};
     b.n_tokens = static_cast<int32_t>(n_tokens);
     b.token = const_cast<llama_token *>(tokens.data() + i);
     b.embd = nullptr;
-    b.pos = pos.data();
+    b.pos = pos_buffer_.data();
     b.n_seq_id = nullptr;
     b.seq_id = nullptr;
     b.logits = nullptr;
@@ -228,11 +226,16 @@ Error Context::infer(const char *prompt, char *out, size_t out_size,
   reset();
 
   try {
-    std::vector<llama_token> tokens;
-    if (!tokenize(prompt, tokens))
+    if (!tokenize(prompt, token_buffer_))
       return Error::IO;
 
-    if (!decode(tokens)) {
+    if (ctx_n_ctx_ > 0 &&
+        (static_cast<int>(token_buffer_.size()) + params.max_new_tokens) >
+            ctx_n_ctx_) {
+      return Error::INVALID_ARG;
+    }
+
+    if (!decode(token_buffer_)) {
       return Error::IO;
     }
 

@@ -1,7 +1,9 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Native;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;
@@ -15,7 +17,6 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddLlamaCore(this IServiceCollection services)
     {
         services.AddLlamaNative();
-        services.AddLlamaProvider();
         services.AddSingleton<HostedModelStore>();
         services.AddSingleton<IHostedModelStateReader>(sp => sp.GetRequiredService<HostedModelStore>());
         services.AddSingleton<IHostedModelStateWriter>(sp => sp.GetRequiredService<HostedModelStore>());
@@ -30,6 +31,8 @@ public static class ServiceCollectionExtensions
                 .Validate(o => o.AcquireTimeout > TimeSpan.Zero, $"{nameof(InferenceOptions.AcquireTimeout)} must be greater than zero")
                 .Validate(o => !string.IsNullOrWhiteSpace(o.StartupWarmupPrompt), $"{nameof(InferenceOptions.StartupWarmupPrompt)} must be set")
                 .ValidateOnStart();
+
+        services.AddLlamaProvider();
 
         return services;
     }

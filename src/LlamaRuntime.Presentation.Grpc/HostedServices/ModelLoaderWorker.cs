@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 

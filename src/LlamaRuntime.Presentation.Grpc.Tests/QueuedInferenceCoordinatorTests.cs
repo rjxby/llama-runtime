@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;

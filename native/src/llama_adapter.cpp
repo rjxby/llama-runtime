@@ -77,7 +77,7 @@ int llama_unload_model(void *model) noexcept {
   return LLAMA_ADAPTER_OK;
 }
 
-int llama_create_context(void *model, int n_ctx, int n_batch, int max_tokens,
+int llama_create_context(void *model, int n_ctx, int n_batch,
                          int generation_max_new_tokens,
                          void **ctx_out) noexcept {
   if (!model || !ctx_out)
@@ -85,7 +85,7 @@ int llama_create_context(void *model, int n_ctx, int n_batch, int max_tokens,
   try {
     llama_adapter::Model *m = static_cast<llama_adapter::Model *>(model);
     llama_adapter::Context *ctx = new llama_adapter::Context(m);
-    if (ctx->init(n_ctx, n_batch, max_tokens, generation_max_new_tokens) !=
+    if (ctx->init(n_ctx, n_batch, generation_max_new_tokens) !=
         llama_adapter::Error::OK) {
       delete ctx;
       return LLAMA_ADAPTER_ERR_LOAD_MODEL;
@@ -127,7 +127,8 @@ int llama_infer(void *ctx, const char *prompt, char *out, size_t out_size,
   llama_adapter::GenParams params;
   params.max_new_tokens =
       static_cast<llama_adapter::Context *>(ctx)->generation_max_new_tokens();
-  return to_public_error(static_cast<llama_adapter::Context *>(ctx)->infer(
-      prompt, out, out_size, out_written, params));
+  const auto rc = static_cast<llama_adapter::Context *>(ctx)->infer(
+      prompt, out, out_size, out_written, params);
+  return to_public_error(rc);
 }
 }

@@ -128,7 +128,6 @@ int llama_create_context(
     void * model,
     int n_ctx,
     int n_batch,
-    int max_tokens,
     int generation_max_new_tokens,
     void ** ctx_out
 );

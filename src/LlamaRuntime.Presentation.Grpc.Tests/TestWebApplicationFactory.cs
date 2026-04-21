@@ -33,7 +33,15 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             nativeMock.Setup(x => x.CountTokens(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
                 .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) => prompt.Length);
             nativeMock.Setup(x => x.Infer(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
-                .Returns("mocked response");
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) =>
+                {
+                    if (prompt.Length > 24)
+                    {
+                        throw new LlamaRuntime.Native.Contracts.NativeInvalidArgumentException("too long");
+                    }
+
+                    return "mocked response";
+                });
 
             services.AddSingleton(nativeMock.Object);
         });

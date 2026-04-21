@@ -1,6 +1,7 @@
 using Grpc.Core;
 using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Native.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
@@ -25,7 +26,7 @@ public sealed class GeneratorServiceTests
         var coordinator = new QueuedInferenceCoordinator(
             provider.Object,
             store,
-            Options.Create(new Configuration.InferenceOptions
+            Options.Create(new InferenceOptions
             {
                 ChannelCapacity = 1,
                 WorkerCount = 1,

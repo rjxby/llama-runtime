@@ -42,8 +42,7 @@ public:
   Context(Model *model) noexcept;
   ~Context() noexcept;
 
-  Error init(int n_ctx, int n_batch, int max_tokens,
-             int generation_max_new_tokens);
+  Error init(int n_ctx, int n_batch, int generation_max_new_tokens);
   int generation_max_new_tokens() const { return generation_max_new_tokens_; }
   void free();
   void reset();
@@ -59,10 +58,11 @@ public:
 private:
   Model *model_ref_ = nullptr;
   llama_context *ctx_ = nullptr;
+  std::vector<llama_token> token_buffer_;
+  std::vector<llama_pos> pos_buffer_;
 
   int ctx_n_ctx_ = 0;
   int ctx_n_batch_ = 0;
-  int max_tokens_ = 0;
   int generation_max_new_tokens_ = 128;
   int n_past_ = 0;
 };

@@ -12,15 +12,21 @@ public sealed class LlamaContextManager : ILlamaContextManager
 {
     private readonly ILlamaNative _native;
     private readonly ILogger<LlamaContextManager> _logger;
-    private readonly int _defaultPoolSize;
+    private readonly int _poolSize;
     private readonly ConcurrentDictionary<IEngineModel, ContextPool> _pools = new();
     private bool _disposed;
 
-    public LlamaContextManager(ILlamaNative native, IOptions<LlamaProviderOptions> options, ILogger<LlamaContextManager> logger)
+    public LlamaContextManager(
+        ILlamaNative native,
+        IOptions<InferenceOptions> options,
+        ILogger<LlamaContextManager> logger)
     {
         _native = native ?? throw new ArgumentNullException(nameof(native));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _defaultPoolSize = options?.Value?.DefaultPoolSize ?? 1;
+        _poolSize = Math.Max(1, options?.Value?.WorkerCount ?? 1);
+        _logger.LogInformation(
+            "LlamaContextManager configured (context_pool_size={ContextPoolSize})",
+            _poolSize);
     }
 
     public async Task<IInferenceSession> CreateSessionAsync(IEngineModel model, CancellationToken cancellationToken = default)
@@ -39,7 +45,7 @@ public sealed class LlamaContextManager : ILlamaContextManager
         return _pools.GetOrAdd(model, m =>
         {
             var em = m as EngineModel ?? throw new InvalidOperationException("unexpected model type");
-            return new ContextPool(_native, em.NativeModelHandle, _defaultPoolSize, _logger);
+            return new ContextPool(_native, em.NativeModelHandle, _poolSize, _logger);
         });
     }
 

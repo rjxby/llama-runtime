@@ -81,10 +81,6 @@ public sealed class LlamaProviderTests
             .ReturnsAsync(session.Object);
 
         session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(2);
-
-        session
             .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("ok");
 
@@ -95,7 +91,6 @@ public sealed class LlamaProviderTests
 
         Assert.Equal("ok", result);
         contextManager.Verify(m => m.CreateSessionAsync(model, It.IsAny<CancellationToken>()), Times.Once);
-        session.Verify(s => s.CountTokensAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.InferAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -114,10 +109,6 @@ public sealed class LlamaProviderTests
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
-
-        session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(2);
 
         session
             .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -191,8 +182,8 @@ public sealed class LlamaProviderTests
             .ReturnsAsync(session.Object);
 
         session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(10);
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new NativeInvalidArgumentException("too long"));
 
         using var provider = CreateProvider(native, contextManager, contextSize: 8, generationMaxNewTokens: 2);
         var model = await provider.LoadModelAsync("model");
@@ -216,10 +207,6 @@ public sealed class LlamaProviderTests
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
-
-        session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(12);
 
         session
             .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
