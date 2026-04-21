@@ -89,6 +89,8 @@ BENCH_ITERATIONS ?= 100
 BENCH_CONCURRENCY ?= 5
 BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems."
 BENCH_GRPCURL ?= http://localhost:5000
+BENCH_LLAMARESTMAXNEWTOKENS ?= 512
+BENCH_LLAMARESTTEMPERATURE ?= 0.0
 
 # ------------------------------------------------------------
 # gRPC runtime config
@@ -290,6 +292,8 @@ bench-llama-rest:
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
 	BENCH_PROMPT=$(BENCH_PROMPT) \
+	BENCH_LLAMARESTMAXNEWTOKENS=$(BENCH_LLAMARESTMAXNEWTOKENS) \
+	BENCH_LLAMARESTTEMPERATURE=$(BENCH_LLAMARESTTEMPERATURE) \
 	dotnet run -c Release --project src/LlamaRuntime.Benchmarks
 
 # ------------------------------------------------------------

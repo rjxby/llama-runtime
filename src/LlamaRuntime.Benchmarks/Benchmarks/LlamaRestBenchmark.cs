@@ -11,7 +11,13 @@ public static class LlamaRestBenchmark
     {
         logger.LogInformation("=== llama.cpp REST benchmark ===");
         var url = options.LlamaRestUrl!;
+        var maxNewTokens = options.LlamaRestMaxNewTokens;
+        var temperature = options.LlamaRestTemperature;
         logger.LogInformation("Endpoint: {Endpoint}", url);
+        logger.LogInformation(
+            "REST decode settings: n_predict={MaxNewTokens}, temperature={Temperature}",
+            maxNewTokens,
+            temperature);
 
         using var httpClient = new HttpClient
         {
@@ -22,8 +28,8 @@ public static class LlamaRestBenchmark
         var payload = new
         {
             prompt = options.Prompt,
-            n_predict = 128,
-            temperature = 0.8
+            n_predict = maxNewTokens,
+            temperature
         };
 
         logger.LogInformation("Warming up...");

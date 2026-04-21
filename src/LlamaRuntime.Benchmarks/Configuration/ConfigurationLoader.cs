@@ -41,5 +41,7 @@ public static class ConfigurationLoader
 
         if (options.Iterations <= 0) throw new InvalidOperationException("Iterations must be > 0");
         if (options.Concurrency <= 0) throw new InvalidOperationException("Concurrency must be > 0");
+        if (options.LlamaRestMaxNewTokens <= 0) throw new InvalidOperationException("LlamaRestMaxNewTokens must be > 0");
+        if (options.LlamaRestTemperature < 0) throw new InvalidOperationException("LlamaRestTemperature must be >= 0");
     }
 }
