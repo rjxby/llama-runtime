@@ -50,7 +50,7 @@ tracked_pin_files=(
   "README.md"
   "CLAUDE.md"
   "native/README.md"
-  "docs/ARCHITECTURE.md"
+  "docs/architecture.md"
 )
 
 tmp_dir="$(mktemp -d)"

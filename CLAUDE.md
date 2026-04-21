@@ -47,7 +47,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
   - benchmark harnesses for the runtime and `llama.cpp` REST baseline
 - `checksums/llama/`
   - pinned SHA-256 manifests for vendored upstream artifacts
-- `docs/ARCHITECTURE.md`
+- `docs/architecture.md`
   - concise description of layer boundaries, lifecycle, and concurrency expectations
 
 ## Runtime Invariants

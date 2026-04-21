@@ -1,4 +1,4 @@
-# LlamaRuntime Benchmarks
+# Benchmarking
 
 This document explains how to benchmark **LlamaRuntime gRPC** against the **llama.cpp REST server** using the shared .NET benchmark harness.
 
@@ -51,7 +51,7 @@ The benchmark harness supports **two modes**: `grpc` and `llama-rest`.
 ### Run gRPC Benchmark
 
 ```bash
-make bench-grpc
+make bench-llama-runtime-grpc
 ```
 
 ### Run llama.cpp REST Benchmark

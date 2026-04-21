@@ -9,6 +9,7 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 * [Overview](#overview)
 * [Features](#features)
 * [Architecture](#architecture)
+* [Documentation](#documentation)
 * [Quickstart](#quickstart)
 
   * [Prerequisites](#prerequisites)
@@ -57,6 +58,15 @@ llama.cpp (C/C++)
          └── llama-runtime-grpc (.NET 10, gRPC)
                └── Client Applications
 ```
+
+---
+
+## Documentation
+
+* [docs/architecture.md](docs/architecture.md) — runtime ownership, threading, and lifecycle details.
+* [docs/benchmarking.md](docs/benchmarking.md) — reproducible gRPC vs. `llama.cpp` REST benchmark workflow.
+* [native/README.md](native/README.md) — native adapter design, API surface, and native build/test notes.
+* [docs/runtime-roadmap.md](docs/runtime-roadmap.md) — planned runtime work and roadmap notes.
 
 ---
 
@@ -183,6 +193,7 @@ make bench-llama-rest
 ```
 
 Benchmarks include latency and throughput comparisons. Use them to validate queue sizing, worker counts, and deployment tradeoffs.
+For the full harness setup, environment variables, and output format, see [docs/benchmarking.md](docs/benchmarking.md).
 
 ---
 
@@ -262,14 +273,6 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 Third-party notices:
 
 * **llama.cpp** — MIT. © Georgi Gerganov & contributors. [https://github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
-
----
-
-## Architecture Notes
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime ownership, threading, and lifecycle details.
-
----
 
 ## Why gRPC?
 
