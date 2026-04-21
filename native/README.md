@@ -74,7 +74,7 @@ This adapter intentionally uses the **most portable llama.cpp integration path**
 - Uses official llama.cpp vocab APIs
 - Returns an explicit buffer-too-small error when the caller output buffer is insufficient
 
-The repo is currently validated against the pinned vendor release `b8672`. Other revisions should be treated as unverified until tested.
+The repo is currently validated against the pinned vendor release `b8868`. Other revisions should be treated as unverified until tested. When intentionally changing that pin, use `make pin-llama LLAMA_VERSION=bNNNN` so the manifest, vendored artifacts, and tracked docs move together.
 
 ---
 

@@ -32,5 +32,6 @@
 
 ## Compatibility
 
-- The repo is currently pinned to `llama.cpp` release `b8672`.
+- The repo is currently pinned to `llama.cpp` release `b8868`.
+- Maintainers should change that pin with `make pin-llama LLAMA_VERSION=bNNNN` so the vendored checksum manifest and docs stay aligned.
 - The native adapter is intended for the pinned vendor version first; compatibility with other revisions is not guaranteed without validation.

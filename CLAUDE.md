@@ -5,6 +5,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 ## Commands
 
 - Bootstrap vendor headers and binaries: `make init`
+- Change the supported `llama.cpp` pin and regenerate the pinned manifest: `make pin-llama LLAMA_VERSION=bNNNN`
 - Re-verify cached upstream archives and extracted vendor binaries: `make verify`
 - Build the native adapter: `make native-build`
 - Run native integration tests (requires a real GGUF at `MODEL_PATH`): `make native-integration-tests`
@@ -18,7 +19,8 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 ## Environment And Build Notes
 
 - The `Makefile` fails fast if neither `.env` nor the selected platform env file exists. This repo currently includes `.env.macos` and `.env.example`.
-- `LLAMA_VERSION` is pinned to `b8672`. Treat compatibility with other `llama.cpp` revisions as unverified until the native adapter and integration tests have been validated.
+- `LLAMA_VERSION` is pinned to `b8868`. Treat compatibility with other `llama.cpp` revisions as unverified until the native adapter and integration tests have been validated.
+- Maintain exactly one supported upstream revision at a time. Use `make pin-llama LLAMA_VERSION=bNNNN` when intentionally changing that pin.
 - `make pack` publishes `src/LlamaRuntime.Presentation.Grpc` as a self-contained single-file app and then copies native libraries and license files into `dist/`.
 - Keep `PublishReadyToRun` disabled by default. The repo documents a deterministic startup crash with `PublishReadyToRun=true` while loading the native `llama.cpp` stack.
 - `vendor/`, `native/build/`, and `dist/` are build/download outputs. Do not edit generated contents by hand.

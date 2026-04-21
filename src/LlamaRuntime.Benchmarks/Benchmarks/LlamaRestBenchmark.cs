@@ -1,16 +1,17 @@
 using System.Net.Http.Json;
 using LlamaRuntime.Benchmarks.Common;
 using LlamaRuntime.Benchmarks.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace LlamaRuntime.Benchmarks;
 
 public static class LlamaRestBenchmark
 {
-    public static async Task<BenchmarkResult> RunAsync(BenchmarkOptions options)
+    public static async Task<BenchmarkResult> RunAsync(BenchmarkOptions options, ILogger logger)
     {
-        Console.WriteLine("=== llama.cpp REST benchmark ===");
+        logger.LogInformation("=== llama.cpp REST benchmark ===");
         var url = options.LlamaRestUrl!;
-        Console.WriteLine($"Endpoint: {url}");
+        logger.LogInformation("Endpoint: {Endpoint}", url);
 
         using var httpClient = new HttpClient
         {
@@ -25,31 +26,68 @@ public static class LlamaRestBenchmark
             temperature = 0.8
         };
 
-        Console.WriteLine("Warming up...");
+        logger.LogInformation("Warming up...");
         for (int i = 0; i < 5; i++)
         {
             try
             {
-                var r = await httpClient.PostAsJsonAsync("", payload);
-                r.EnsureSuccessStatusCode();
+                await SendRequestAsync(
+                    httpClient,
+                    payload,
+                    options,
+                    logger,
+                    $"warmup-{i}",
+                    isWarmup: true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                 Console.WriteLine($"Warmup failed: {ex.Message}");
+                logger.LogWarning(ex, "Warmup failed for warmup-{Iteration}", i);
             }
         }
 
-        Console.WriteLine("Warmup done.\n");
+        logger.LogInformation("Warmup done.");
 
         return await BenchmarkRunner.RunAsync(
             options.Iterations,
             options.Concurrency,
-            async _ =>
-            {
-                var r = await httpClient.PostAsJsonAsync("", payload);
-                r.EnsureSuccessStatusCode();
-                var json = await r.Content.ReadAsStringAsync();
-                return !string.IsNullOrEmpty(json);
-            });
+            idx => SendRequestAsync(
+                httpClient,
+                payload,
+                options,
+                logger,
+                $"run-{idx}",
+                isWarmup: false),
+            logger).ConfigureAwait(false);
+    }
+
+    private static async Task<BenchmarkInvocationResult> SendRequestAsync(
+        HttpClient httpClient,
+        object payload,
+        BenchmarkOptions options,
+        ILogger logger,
+        string requestId,
+        bool isWarmup)
+    {
+        using var response = await httpClient.PostAsJsonAsync("", payload).ConfigureAwait(false);
+        var responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            response.EnsureSuccessStatusCode();
+        }
+
+        var (result, parseResult) = BenchmarkResponseValidator.ValidateLlamaRestResponse(
+            responseBody,
+            options.StrictResponseValidation);
+
+        if (isWarmup && !result.Success)
+        {
+            logger.LogWarning(
+                "Warmup response validation failed for {RequestId}: {FailureReason}",
+                requestId,
+                result.FailureReason ?? parseResult.FailureReason ?? "Unknown failure");
+        }
+
+        return result;
     }
 }

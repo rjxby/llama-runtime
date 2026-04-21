@@ -13,7 +13,7 @@ This repository is a native-first, single-model gRPC inference runtime built on 
 
 ## Repo Boundaries
 
-- `native/`: C++ adapter over pinned `llama.cpp` release `b8672`
+- `native/`: C++ adapter over pinned `llama.cpp` release `b8868`
 - `src/LlamaRuntime.Native*`: native loading, handles, P/Invoke, error mapping
 - `src/LlamaRuntime.Engine*`: model lifecycle, context pooling, inference sessions
 - `src/LlamaRuntime.Presentation.Grpc*`: gRPC host, auth, rate limiting, health checks, bounded queueing

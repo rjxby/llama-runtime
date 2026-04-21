@@ -71,7 +71,7 @@ llama.cpp (C/C++)
 
 ### 1. Initialize dependencies
 
-Downloads headers and platform-specific `llama.cpp` binaries and verifies the downloaded archives against repo-pinned SHA-256 manifests.
+Downloads headers and platform-specific `llama.cpp` binaries and verifies the downloaded archives against the repo-pinned SHA-256 manifest for the supported `llama.cpp` revision.
 
 ```bash
 make init
@@ -81,6 +81,12 @@ Validate the cached upstream archives again at any time with:
 
 ```bash
 make verify
+```
+
+Maintainers should change the supported `llama.cpp` pin with:
+
+```bash
+make pin-llama LLAMA_VERSION=bNNNN
 ```
 
 ### 2. Build the package
@@ -192,10 +198,12 @@ Example `.env` values (required):
 ```env
 PLATFORM=macos-arm64
 # llama.cpp source/release version embedded into the native adapter
-LLAMA_VERSION=b8672
+LLAMA_VERSION=b8868
 DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
 ```
+
+`LLAMA_VERSION` is a repo pin, not a per-machine convenience override. When intentionally changing the supported upstream revision, use `make pin-llama LLAMA_VERSION=bNNNN` so the checksum manifest, vendored artifacts, and tracked docs stay aligned.
 
 Packaging overrides:
 

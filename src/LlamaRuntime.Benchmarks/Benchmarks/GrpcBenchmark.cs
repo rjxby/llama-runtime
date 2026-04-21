@@ -3,12 +3,13 @@ using LlamaRuntime.Benchmarks.Common;
 using LlamaRuntime.Presentation.Grpc;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Benchmarks.Configuration;
+using Microsoft.Extensions.Logging;
 
 public static class GrpcBenchmark
 {
-    public static async Task<BenchmarkResult> RunAsync(BenchmarkOptions options)
+    public static async Task<BenchmarkResult> RunAsync(BenchmarkOptions options, ILogger logger)
     {
-        Console.WriteLine("=== gRPC benchmark (out-of-process) ===");
+        logger.LogInformation("=== gRPC benchmark (out-of-process) ===");
 
         // API Key is already validated by ConfigurationLoader
         var apiKey = options.ApiKey!;
@@ -33,36 +34,55 @@ public static class GrpcBenchmark
         var client = new Generator.GeneratorClient(channel);
 
         // Warmup
-        Console.WriteLine("Warming up...");
+        logger.LogInformation("Warming up...");
         for (int i = 0; i < 5; i++)
         {
+            var requestId = $"warmup-{i}";
             try
             {
-                await client.GenerateAsync(new GenerateRequest
+                var reply = await client.GenerateAsync(new GenerateRequest
                 {
-                    RequestId = $"warmup-{i}",
+                    RequestId = requestId,
                     Prompt = options.Prompt
-                });
+                }).ConfigureAwait(false);
+
+                var validation = BenchmarkResponseValidator.ValidateGeneratedText(
+                    reply.Result,
+                    options.StrictResponseValidation,
+                    "gRPC");
+
+                if (!validation.Success)
+                {
+                    logger.LogWarning(
+                        "Warmup response validation failed for {RequestId}: {FailureReason}",
+                        requestId,
+                        validation.FailureReason);
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warmup failed: {ex.Message}");
+                logger.LogWarning(ex, "Warmup failed for {RequestId}", requestId);
             }
         }
-        Console.WriteLine("Warmup done.\n");
+        logger.LogInformation("Warmup done.");
 
         return await BenchmarkRunner.RunAsync(
             options.Iterations,
             options.Concurrency,
             async idx =>
             {
+                var requestId = $"run-{idx}";
                 var reply = await client.GenerateAsync(new GenerateRequest
                 {
-                    RequestId = $"run-{idx}",
+                    RequestId = requestId,
                     Prompt = options.Prompt
-                });
+                }).ConfigureAwait(false);
 
-                return !string.IsNullOrEmpty(reply.Result);
-            });
+                return BenchmarkResponseValidator.ValidateGeneratedText(
+                    reply.Result,
+                    options.StrictResponseValidation,
+                    "gRPC");
+            },
+            logger).ConfigureAwait(false);
     }
 }

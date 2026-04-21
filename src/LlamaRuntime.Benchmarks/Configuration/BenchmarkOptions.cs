@@ -16,5 +16,7 @@ public class BenchmarkOptions
 
     public string? ApiKey { get; set; }
 
+    public bool StrictResponseValidation { get; set; } = true;
+
     public string? OutputFile { get; set; }
 }
