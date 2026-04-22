@@ -4,4 +4,5 @@ public class HostedModelOptions
 {
     public const string SectionName = "HostedModel";
     public required string ModelPath { get; set; }
+    public required string ModelId { get; set; }
 }

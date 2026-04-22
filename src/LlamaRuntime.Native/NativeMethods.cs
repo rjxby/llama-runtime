@@ -6,6 +6,24 @@ namespace LlamaRuntime.Native;
 
 internal static class NativeMethods
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LlamaAdapterGenerationParams
+    {
+        public int MaxNewTokens;
+        public float Temperature;
+        public float TopP;
+        public uint Seed;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LlamaAdapterInferResult
+    {
+        public int PromptTokens;
+        public int OutputTokens;
+        public int TotalTokens;
+        public int OutputBytes;
+    }
+
     internal const string LibraryLogicalName = "__llama_adapter_native__";
 
     [DllImport(LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "llama_adapter_get_version")]
@@ -30,5 +48,11 @@ internal static class NativeMethods
     internal static extern int llama_count_tokens(LlamaContextHandle ctx, string prompt, out int tokenCount);
 
     [DllImport(NativeMethods.LibraryLogicalName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "llama_infer")]
-    internal static extern int llama_infer(LlamaContextHandle ctx, string prompt, StringBuilder outBuf, UIntPtr outSize, out int outWritten);
+    internal static extern int llama_infer(
+        LlamaContextHandle ctx,
+        string prompt,
+        in LlamaAdapterGenerationParams parameters,
+        StringBuilder outBuf,
+        UIntPtr outSize,
+        out LlamaAdapterInferResult result);
 }

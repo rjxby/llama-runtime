@@ -51,7 +51,7 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
         });
     }
 
-    public Task<string> InferAsync(string prompt, CancellationToken cancellationToken, string? requestId = null) =>
+    public Task<InferenceResult> InferAsync(string prompt, CancellationToken cancellationToken, string? requestId = null) =>
         EnqueueAsync(
             "infer",
             (model, ct) => _provider.InferAsync(model, prompt, ct),

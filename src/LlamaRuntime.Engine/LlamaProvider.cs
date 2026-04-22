@@ -72,7 +72,7 @@ public sealed class LlamaProvider : ILlamaProvider
         return await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<string> InferAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
+    public async Task<InferenceResult> InferAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
@@ -81,8 +81,23 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
+            return await InferContentAsync(session, prompt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NativeException ex)
+        {
+            throw new InferenceException(CreateInferenceMessage(ex), ex);
+        }
+    }
+
+    private async Task<InferenceResult> InferContentAsync(
+        IInferenceSession session,
+        string prompt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
             var result = await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(result))
+            if (string.IsNullOrWhiteSpace(result.Content))
             {
                 throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
             }

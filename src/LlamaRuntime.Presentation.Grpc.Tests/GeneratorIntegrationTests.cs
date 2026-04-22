@@ -3,6 +3,7 @@ using Grpc.Net.Client;
 using Grpc.Core;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Common.Tests;
+using LlamaRuntime.Presentation.Grpc.Services;
 
 namespace LlamaRuntime.Presentation.Grpc.Tests;
 
@@ -27,43 +28,26 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
     }
 
     [Fact]
-    public async Task Generate_ReturnsResult_WithApiKey()
+    public async Task Generate_ReturnsContent_WithApiKey()
     {
-        var httpClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            BaseAddress = new Uri("http://localhost")
-        });
-
-        httpClient.DefaultRequestVersion = new Version(2, 0);
-        httpClient.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-
-        httpClient.DefaultRequestHeaders.Add(AuthConstants.AuthenticationScheme, TestWebApplicationFactory.ApiKey);
-
-        using var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
-
-        var client = new Generator.GeneratorClient(channel);
+        var client = CreateClient(out var channel);
 
         var call = client.GenerateAsync(new GenerateRequest { RequestId = "r1", Prompt = "world" });
         var reply = await call.ResponseAsync;
 
         Assert.Equal("r1", reply.RequestId);
-        Assert.NotEmpty(reply.Result);
+        Assert.Equal("test-model", reply.Model);
+        Assert.NotEmpty(reply.Content);
+        Assert.Equal(5, reply.Usage.InputTokens);
+        Assert.False(reply.RuntimeTrace.StructuredOutputApplied);
+
+        channel.Dispose();
     }
 
     [Fact]
     public async Task Generate_OversizedPrompt_ReturnsHelpfulError()
     {
-        var httpClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            BaseAddress = new Uri("http://localhost")
-        });
-
-        httpClient.DefaultRequestVersion = new Version(2, 0);
-        httpClient.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-        httpClient.DefaultRequestHeaders.Add(AuthConstants.AuthenticationScheme, TestWebApplicationFactory.ApiKey);
-
-        using var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
-        var client = new Generator.GeneratorClient(channel);
+        var client = CreateClient(out var channel);
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
             await client.GenerateAsync(new GenerateRequest
@@ -74,22 +58,14 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Contains("Prompt exceeds input budget", ex.Status.Detail);
+
+        channel.Dispose();
     }
 
     [Fact]
     public async Task EstimateTokens_ReturnsBudgetDetails()
     {
-        var httpClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            BaseAddress = new Uri("http://localhost")
-        });
-
-        httpClient.DefaultRequestVersion = new Version(2, 0);
-        httpClient.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-        httpClient.DefaultRequestHeaders.Add(AuthConstants.AuthenticationScheme, TestWebApplicationFactory.ApiKey);
-
-        using var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
-        var client = new Generator.GeneratorClient(channel);
+        var client = CreateClient(out var channel);
 
         var reply = await client.EstimateTokensAsync(new EstimateTokensRequest
         {
@@ -101,5 +77,86 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
         Assert.Equal(8, reply.ReservedOutputTokens);
         Assert.Equal(24, reply.MaxAllowedInputTokens);
         Assert.True(reply.Fits);
+
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task GetCapabilities_ReturnsLoadedModelConfiguration()
+    {
+        var client = CreateClient(out var channel);
+
+        var reply = await client.GetCapabilitiesAsync(new GetCapabilitiesRequest()).ResponseAsync;
+
+        Assert.Equal("test-model", reply.ModelId);
+        Assert.Equal(32, reply.ContextSize);
+        Assert.False(reply.SupportsStructuredOutput);
+        Assert.False(reply.SupportsJsonObjectOutput);
+        Assert.False(reply.SupportsSpeculativeDecoding);
+        Assert.Equal("llama_cpp", reply.TokenizerFamily);
+
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task Generate_ReturnsUsageAndTrace()
+    {
+        var client = CreateClient(out var channel);
+
+        var reply = await client.GenerateAsync(new GenerateRequest
+        {
+            RequestId = "generate",
+            Prompt = "world"
+        }).ResponseAsync;
+
+        Assert.Equal("generate", reply.RequestId);
+        Assert.Equal("test-model", reply.Model);
+        Assert.NotEmpty(reply.Content);
+        Assert.Equal(5, reply.Usage.InputTokens);
+        Assert.Equal("mocked response".Length, reply.Usage.OutputTokens);
+        Assert.Equal(reply.Usage.InputTokens + reply.Usage.OutputTokens, reply.Usage.TotalTokens);
+        Assert.False(reply.RuntimeTrace.StructuredOutputApplied);
+        Assert.False(reply.RuntimeTrace.StructuredOutputSatisfied);
+        Assert.False(reply.RuntimeTrace.SpeculativeDecodingUsed);
+
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task Generate_InvalidPrompt_ReturnsNormalizedTrailers()
+    {
+        var client = CreateClient(out var channel);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+            await client.GenerateAsync(new GenerateRequest
+            {
+                RequestId = "invalid",
+                Prompt = ""
+            }).ResponseAsync);
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, ex.Trailers.Single(x => x.Key == RuntimeErrorMetadata.ErrorCodeTrailerName).Value);
+
+        channel.Dispose();
+    }
+
+    private Generator.GeneratorClient CreateClient(out GrpcChannel channel)
+    {
+        channel = CreateChannel();
+        return new Generator.GeneratorClient(channel);
+    }
+
+    private GrpcChannel CreateChannel()
+    {
+        var httpClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        httpClient.DefaultRequestVersion = new Version(2, 0);
+        httpClient.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        httpClient.DefaultRequestHeaders.Add(AuthConstants.AuthenticationScheme, TestWebApplicationFactory.ApiKey);
+
+        return GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
     }
 }

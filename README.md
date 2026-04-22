@@ -33,7 +33,7 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 
 > **`llama-runtime-grpc`**
 
-This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface.
+This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface. The public gRPC contract is `llama.v2`, which includes `Generate`, `EstimateTokens`, and `GetCapabilities`.
 
 ---
 
@@ -41,6 +41,7 @@ This runtime is optimized for predictable serving: bounded queueing, pooled cont
 
 * **Native-first** — direct integration with `llama.cpp` for maximum inference performance.
 * **gRPC runtime** — single-file, self-contained `llama-runtime-grpc` built on .NET 10.
+* **Normalized runtime contract** — `llama.v2` exposes model identity, usage, runtime trace fields, and capability discovery.
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
@@ -124,11 +125,13 @@ The package build disables `PublishReadyToRun` by default on all targets. We rep
 make llama-runtime-grpc-run
 ```
 
-You can set the hosted model path using an environment variable or your `.env` file:
+You must set both the hosted model path and the public model id using environment variables or your `.env` file:
 
 ```bash
 # example override
-HostedModel__ModelPath=/absolute/path/to/your/model.gguf make llama-runtime-grpc-run
+HostedModel__ModelPath=/absolute/path/to/your/model.gguf \
+HostedModel__ModelId=stories15m \
+make llama-runtime-grpc-run
 ```
 
 ---
@@ -157,8 +160,10 @@ chmod +x ./LlamaRuntime.Presentation.Grpc
 4. **Run**
 
 ```bash
-# example using an environment variable
-HostedModel__ModelPath="/abs/path/to/model.gguf" ./LlamaRuntime.Presentation.Grpc
+# example using environment variables
+HostedModel__ModelPath="/abs/path/to/model.gguf" \
+HostedModel__ModelId="stories15m" \
+./LlamaRuntime.Presentation.Grpc
 ```
 
 ### macOS Gatekeeper / Quarantine note

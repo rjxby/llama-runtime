@@ -95,17 +95,34 @@ public sealed class LlamaNative : ILlamaNative
         return tokenCount;
     }
 
-    public string Infer(LlamaContextHandle ctx, string prompt)
+    public NativeInferenceResult Infer(LlamaContextHandle ctx, string prompt)
     {
         EnsureNotDisposed();
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
 
+        var parameters = new NativeMethods.LlamaAdapterGenerationParams
+        {
+            MaxNewTokens = _options.GenerationMaxNewTokens,
+            Temperature = 0.0f,
+            TopP = 1.0f,
+            Seed = uint.MaxValue
+        };
         var sb = new StringBuilder(_options.InferenceBufferSize);
-        var rc = NativeMethods.llama_infer(ctx, prompt, sb, (UIntPtr)sb.Capacity, out var outWritten);
+        var rc = NativeMethods.llama_infer(
+            ctx,
+            prompt,
+            in parameters,
+            sb,
+            (UIntPtr)sb.Capacity,
+            out var result);
 
         ThrowIfError(rc, "Infer");
-        return sb.ToString();
+        return new NativeInferenceResult(
+            sb.ToString(),
+            result.PromptTokens,
+            result.OutputTokens,
+            result.TotalTokens);
     }
 
     private static void ThrowIfError(int code, string op)

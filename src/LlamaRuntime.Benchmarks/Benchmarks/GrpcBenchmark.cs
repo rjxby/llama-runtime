@@ -47,7 +47,7 @@ public static class GrpcBenchmark
                 }).ConfigureAwait(false);
 
                 var validation = BenchmarkResponseValidator.ValidateGeneratedText(
-                    reply.Result,
+                    reply.Content,
                     options.StrictResponseValidation,
                     "gRPC");
 
@@ -79,7 +79,7 @@ public static class GrpcBenchmark
                 }).ConfigureAwait(false);
 
                 return BenchmarkResponseValidator.ValidateGeneratedText(
-                    reply.Result,
+                    reply.Content,
                     options.StrictResponseValidation,
                     "gRPC");
             },

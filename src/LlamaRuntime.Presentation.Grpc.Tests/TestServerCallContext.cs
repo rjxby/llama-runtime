@@ -21,7 +21,7 @@ internal static class TestServerCallContext
             CancellationTokenCore = cancellationToken;
         }
 
-        protected override string MethodCore => "llama.v1.Generator/Generate";
+        protected override string MethodCore => "llama.v2.Generator/Generate";
 
         protected override string HostCore => "localhost";
 

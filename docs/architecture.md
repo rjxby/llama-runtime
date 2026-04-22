@@ -29,6 +29,7 @@
 - Readiness is healthy only when the model is fully loaded and startup warm-up has completed.
 - Prompt budget is enforced before generation using `ContextSize - GenerationMaxNewTokens`.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
+- `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current greedy-decoding implementation.
 
 ## Compatibility
 

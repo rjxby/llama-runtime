@@ -43,6 +43,8 @@ public static class ServiceCollectionExtensions
                 .BindConfiguration(HostedModelOptions.SectionName)
                 .Validate(o => !string.IsNullOrWhiteSpace(o.ModelPath),
                           $"{nameof(HostedModelOptions.ModelPath)} must be set")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.ModelId),
+                          $"{nameof(HostedModelOptions.ModelId)} must be set")
                 .ValidateOnStart();
 
         return services;

@@ -99,7 +99,6 @@ message GenerateReply {
   string content = 3;
   Usage usage = 4;
   RuntimeTrace runtime_trace = 5;
-  RuntimeError error = 6;
 }
 
 message ResponseFormat {
@@ -124,10 +123,6 @@ message RuntimeTrace {
   bool speculative_decoding_used = 3;
 }
 
-message RuntimeError {
-  string code = 1;
-  string message = 2;
-}
 ```
 
 ### Implementation intent
@@ -135,7 +130,7 @@ message RuntimeError {
 - Keep request parsing narrow: the runtime receives fully prepared prompt text from the caller.
 - Keep tool definitions, tool prompting, and tool-choice policy in the proxy, where model-specific templates and prompt composition already belong.
 - Budget input tokens against the final prompt string only; the runtime should not carry hidden tool-rendering overhead that the caller cannot see.
-- Map provider- and runtime-specific errors into a stable `RuntimeError` shape plus transport-level status.
+- Map provider- and runtime-specific errors into normalized trailer metadata plus transport-level status.
 - Return the loaded model identifier in `GenerateReply` so logs, diagnostics, and proxy caches can correlate responses with the active model.
 - Add `GetCapabilities` in the same contract revision so clients do not infer feature support from hard-coded assumptions.
 - Leave any parsing of model-emitted tool-call text to the proxy, which already owns tool policy and model-specific prompting.
@@ -323,5 +318,5 @@ Runtime can:
 
 - Multi-model hosting is deferred. If required later, it should be specified as a separate roadmap item that covers loading policy, eviction policy, memory accounting, request routing, and per-model capability lookup.
 - Tool-call normalization is deferred to the proxy. If a later design moves normalized tool-call parsing into runtime, that should be introduced as a separate contract change.
-- The exact `RuntimeError.code` taxonomy should be defined during implementation, but it should be stable and integration-friendly once introduced.
+- The exact trailer error-code taxonomy should be defined during implementation, but it should be stable and integration-friendly once introduced.
 - The exact benchmark matrix can remain implementation-defined so long as it covers baseline text generation, structured output, and speculative decoding where supported.

@@ -82,9 +82,9 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
         }).ResponseAsync;
 
         var logs = string.Join(Environment.NewLine, logSink.Messages);
-        Assert.NotEmpty(reply.Result);
+        Assert.NotEmpty(reply.Content);
         Assert.DoesNotContain(prompt, logs, StringComparison.Ordinal);
-        Assert.DoesNotContain(reply.Result, logs, StringComparison.Ordinal);
+        Assert.DoesNotContain(reply.Content, logs, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
-                return "ok";
+                return new LlamaRuntime.Engine.Contracts.InferenceResult("ok", 5, 2, 7);
             });
 
         var coordinator = new QueuedInferenceCoordinator(
@@ -157,7 +157,7 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
             gate.TrySetResult();
 
             var result = await inFlight;
-            Assert.Equal("ok", result);
+            Assert.Equal("ok", result.Content);
         }
         finally
         {

@@ -10,5 +10,5 @@ public interface IInferenceSession : IAsyncDisposable
     /// <summary>
     /// Executes inference within this isolated context.
     /// </summary>
-    Task<string> InferAsync(string prompt, CancellationToken ct = default);
+    Task<InferenceResult> InferAsync(string prompt, CancellationToken ct = default);
 }
