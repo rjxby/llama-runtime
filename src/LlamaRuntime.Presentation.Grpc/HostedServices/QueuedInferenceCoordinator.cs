@@ -1,7 +1,8 @@
 using System.Threading.Channels;
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using LlamaRuntime.Engine.Contracts;
-using LlamaRuntime.Presentation.Grpc.Configuration;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.HostedServices;
@@ -35,6 +36,13 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
             throw new ArgumentOutOfRangeException(nameof(options), "Inference worker count must be greater than zero.");
         }
 
+        _logger.LogInformation(
+            "QueuedInferenceCoordinator configured (worker_count={WorkerCount}, effective_native_parallelism={EffectiveNativeParallelism}, channel_capacity={ChannelCapacity}, acquire_timeout_ms={AcquireTimeoutMs})",
+            _options.WorkerCount,
+            _options.WorkerCount,
+            _options.ChannelCapacity,
+            _options.AcquireTimeout.TotalMilliseconds);
+
         _channel = Channel.CreateBounded<IInferenceWorkItem>(new BoundedChannelOptions(_options.ChannelCapacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -43,17 +51,19 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
         });
     }
 
-    public Task<string> InferAsync(string prompt, CancellationToken cancellationToken) =>
+    public Task<InferenceResult> InferAsync(string prompt, CancellationToken cancellationToken, string? requestId = null) =>
         EnqueueAsync(
             "infer",
             (model, ct) => _provider.InferAsync(model, prompt, ct),
-            cancellationToken);
+            cancellationToken,
+            requestId);
 
-    public Task<int> CountTokensAsync(string prompt, CancellationToken cancellationToken) =>
+    public Task<int> CountTokensAsync(string prompt, CancellationToken cancellationToken, string? requestId = null) =>
         EnqueueAsync(
             "count_tokens",
             (model, ct) => _provider.CountTokensAsync(model, prompt, ct),
-            cancellationToken);
+            cancellationToken,
+            requestId);
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -72,11 +82,12 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
     private async Task<T> EnqueueAsync<T>(
         string operationName,
         Func<IEngineModel, CancellationToken, Task<T>> operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? requestId)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var workItem = new InferenceWorkItem<T>(operationName, operation, cancellationToken);
+        var workItem = new InferenceWorkItem<T>(operationName, operation, cancellationToken, requestId);
         using var enqueueCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         enqueueCts.CancelAfter(_options.AcquireTimeout);
 
@@ -121,6 +132,13 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
             }
 
             using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, workItem.CallerCancellationToken);
+            var queueWaitMs = Stopwatch.GetElapsedTime(workItem.EnqueuedAt).TotalMilliseconds;
+            _logger.LogInformation(
+                "Inference work item started (operation={OperationName}, request_id={RequestId}, worker_id={WorkerId}, queue_wait_ms={QueueWaitMs})",
+                workItem.OperationName,
+                workItem.RequestId ?? string.Empty,
+                workerId,
+                queueWaitMs);
 
             try
             {
@@ -157,6 +175,8 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
     private interface IInferenceWorkItem
     {
         string OperationName { get; }
+        string? RequestId { get; }
+        long EnqueuedAt { get; }
         CancellationToken CallerCancellationToken { get; }
         Task ExecuteAsync(IEngineModel model, CancellationToken cancellationToken);
         void TrySetException(Exception exception);
@@ -171,14 +191,21 @@ public sealed class QueuedInferenceCoordinator : BackgroundService
         public InferenceWorkItem(
             string operationName,
             Func<IEngineModel, CancellationToken, Task<T>> operation,
-            CancellationToken callerCancellationToken)
+            CancellationToken callerCancellationToken,
+            string? requestId)
         {
             OperationName = operationName;
             _operation = operation;
             CallerCancellationToken = callerCancellationToken;
+            RequestId = requestId;
+            EnqueuedAt = Stopwatch.GetTimestamp();
         }
 
         public string OperationName { get; }
+
+        public string? RequestId { get; }
+
+        public long EnqueuedAt { get; }
 
         public CancellationToken CallerCancellationToken { get; }
 

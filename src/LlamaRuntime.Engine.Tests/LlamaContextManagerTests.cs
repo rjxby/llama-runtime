@@ -23,11 +23,10 @@ public sealed class LlamaContextManagerTests
         Mock<ILlamaNative> nativeMock,
         int poolSize = 2)
     {
-        var options = Options.Create(new LlamaProviderOptions
-        {
-            DefaultPoolSize = poolSize
-        });
-        return new LlamaContextManager(nativeMock.Object, options, NullLogger<LlamaContextManager>.Instance);
+        return new LlamaContextManager(
+            nativeMock.Object,
+            Options.Create(new InferenceOptions { WorkerCount = poolSize }),
+            NullLogger<LlamaContextManager>.Instance);
     }
 
     [Fact]

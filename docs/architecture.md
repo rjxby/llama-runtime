@@ -29,8 +29,10 @@
 - Readiness is healthy only when the model is fully loaded and startup warm-up has completed.
 - Prompt budget is enforced before generation using `ContextSize - GenerationMaxNewTokens`.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
+- `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current greedy-decoding implementation.
 
 ## Compatibility
 
-- The repo is currently pinned to `llama.cpp` release `b8672`.
+- The repo is currently pinned to `llama.cpp` release `b8868`.
+- Maintainers should change that pin with `make pin-llama LLAMA_VERSION=bNNNN` so the vendored checksum manifest and docs stay aligned.
 - The native adapter is intended for the pinned vendor version first; compatibility with other revisions is not guaranteed without validation.

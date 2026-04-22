@@ -81,22 +81,50 @@ public sealed class LlamaProviderTests
             .ReturnsAsync(session.Object);
 
         session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(2);
-
-        session
             .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("ok");
+            .ReturnsAsync(new InferenceResult("ok", 2, 1, 3));
 
         using var provider = CreateProvider(native, contextManager);
         var model = await provider.LoadModelAsync("model");
 
         var result = await provider.InferAsync(model, "hi");
 
-        Assert.Equal("ok", result);
+        Assert.Equal("ok", result.Content);
+        Assert.Equal(2, result.InputTokens);
+        Assert.Equal(1, result.OutputTokens);
+        Assert.Equal(3, result.TotalTokens);
         contextManager.Verify(m => m.CreateSessionAsync(model, It.IsAny<CancellationToken>()), Times.Once);
-        session.Verify(s => s.CountTokensAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.InferAsync("hi", It.IsAny<CancellationToken>()), Times.Once);
+        session.Verify(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task InferAsync_BlankOutput_ThrowsEmptyInferenceOutputException(string output)
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        var session = new Mock<IInferenceSession>();
+
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+
+        contextManager
+            .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session.Object);
+
+        session
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InferenceResult(output, 2, 1, 3));
+
+        using var provider = CreateProvider(native, contextManager);
+        var model = await provider.LoadModelAsync("model");
+
+        var ex = await Assert.ThrowsAsync<EmptyInferenceOutputException>(() =>
+            provider.InferAsync(model, "hi"));
+
+        Assert.Equal("Inference returned blank output for a text-generation request.", ex.Message);
     }
 
     [Fact]
@@ -130,6 +158,9 @@ public sealed class LlamaProviderTests
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(session.Object);
+        session
+            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3);
 
         session
             .Setup(s => s.CountTokensAsync("hello", It.IsAny<CancellationToken>()))
@@ -158,8 +189,8 @@ public sealed class LlamaProviderTests
             .ReturnsAsync(session.Object);
 
         session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(10);
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new NativeInvalidArgumentException("too long"));
 
         using var provider = CreateProvider(native, contextManager, contextSize: 8, generationMaxNewTokens: 2);
         var model = await provider.LoadModelAsync("model");
@@ -185,10 +216,6 @@ public sealed class LlamaProviderTests
             .ReturnsAsync(session.Object);
 
         session
-            .Setup(s => s.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(12);
-
-        session
             .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new NativeIOException("native io fail"));
 
@@ -199,5 +226,62 @@ public sealed class LlamaProviderTests
             provider.InferAsync(model, "short prompt"));
 
         Assert.Equal("Inference failed in the native runtime.", ex.Message);
+    }
+
+    [Fact]
+    public async Task InferAsync_NativeFailureAfterSessionCreation_ThrowsInferenceException()
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        var session = new Mock<IInferenceSession>();
+
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+
+        contextManager
+            .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session.Object);
+
+        session
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new NativeIOException("native io fail"));
+
+        using var provider = CreateProvider(native, contextManager);
+        var model = await provider.LoadModelAsync("model");
+
+        var ex = await Assert.ThrowsAsync<InferenceException>(() =>
+            provider.InferAsync(model, "prompt"));
+
+        Assert.Equal("Inference failed in the native runtime.", ex.Message);
+    }
+
+    [Fact]
+    public async Task InferAsync_CancellationDuringInference_Propagates()
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        var session = new Mock<IInferenceSession>();
+        using var cts = new CancellationTokenSource();
+
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+
+        contextManager
+            .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session.Object);
+
+        session
+            .Setup(s => s.InferAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                await cts.CancelAsync();
+                throw new OperationCanceledException(cts.Token);
+            });
+
+        using var provider = CreateProvider(native, contextManager);
+        var model = await provider.LoadModelAsync("model");
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            provider.InferAsync(model, "prompt", cts.Token));
     }
 }

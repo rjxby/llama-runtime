@@ -72,7 +72,7 @@ public sealed class LlamaProvider : ILlamaProvider
         return await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<string> InferAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
+    public async Task<InferenceResult> InferAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
@@ -81,23 +81,42 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            var promptTokens = await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
-            var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-            var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
+            return await InferContentAsync(session, prompt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NativeException ex)
+        {
+            throw new InferenceException(CreateInferenceMessage(ex), ex);
+        }
+    }
 
-            if (promptTokens > maxInputTokens)
+    private async Task<InferenceResult> InferContentAsync(
+        IInferenceSession session,
+        string prompt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(result.Content))
             {
-                throw new PromptBudgetExceededException(
-                    $"Prompt exceeds input budget: {promptTokens} tokens > {maxInputTokens} allowed (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
+                throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
             }
 
-            return await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+            return result;
         }
         catch (NativeException ex)
         {
             if (ex is NativeBufferTooSmallException)
             {
                 throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
+            }
+
+            if (ex is NativeInvalidArgumentException)
+            {
+                var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
+                var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
+                throw new PromptBudgetExceededException(
+                    $"Prompt exceeds input budget: native tokenizer reported more than {maxInputTokens} allowed tokens (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
             }
 
             throw new InferenceException(CreateInferenceMessage(ex), ex);

@@ -20,6 +20,11 @@ public class InferenceException : EngineException
     public InferenceException(string message, Exception? inner = null) : base(message, inner) { }
 }
 
+public sealed class EmptyInferenceOutputException : InferenceException
+{
+    public EmptyInferenceOutputException(string message) : base(message) { }
+}
+
 public sealed class PromptBudgetExceededException : InferenceException
 {
     public PromptBudgetExceededException(string message) : base(message) { }

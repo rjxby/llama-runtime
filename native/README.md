@@ -74,7 +74,7 @@ This adapter intentionally uses the **most portable llama.cpp integration path**
 - Uses official llama.cpp vocab APIs
 - Returns an explicit buffer-too-small error when the caller output buffer is insufficient
 
-The repo is currently validated against the pinned vendor release `b8672`. Other revisions should be treated as unverified until tested.
+The repo is currently validated against the pinned vendor release `b8868`. Other revisions should be treated as unverified until tested. When intentionally changing that pin, use `make pin-llama LLAMA_VERSION=bNNNN` so the manifest, vendored artifacts, and tracked docs move together.
 
 ---
 
@@ -128,7 +128,6 @@ int llama_create_context(
     void * model,
     int n_ctx,
     int n_batch,
-    int max_tokens,
     int generation_max_new_tokens,
     void ** ctx_out
 );
@@ -150,17 +149,19 @@ int llama_remove_context(void * ctx);
 int llama_infer(
     void * ctx,
     const char * prompt,
+    const llama_adapter_generation_params_t * params,
     char * out,
     size_t out_size,
-    int32_t * out_written
+    llama_adapter_infer_result_t * result
 );
 ```
 
 - **Resets context state** (clears KV cache)
 - tokenizes prompt
 - decodes prompt
-- greedy generates continuation
+- samples continuation through llama.cpp sampler APIs
 - writes null-terminated result to `out`
+- fills token/byte usage in `result`
 
 ---
 
@@ -187,7 +188,7 @@ The adapter does not hold cross-context shared mutable state.
 
 ## 🚀 Performance Characteristics
 
-- Uses greedy decoding (simple & deterministic)
+- Uses llama.cpp sampler APIs, with greedy decoding by default
 - Minimal memory copies
 - Dynamic allocations still occur for token/vector management; this adapter optimizes for clarity and correctness first
 - Respects llama.cpp batching rules

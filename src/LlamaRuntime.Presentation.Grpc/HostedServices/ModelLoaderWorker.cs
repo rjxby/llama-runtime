@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
@@ -50,7 +51,7 @@ public class ModelLoaderWorker : IHostedService
             _hostedModelWriter.SetWarmingUp(model);
 
             var warmup = await _provider.InferAsync(model, _startupWarmupPrompt, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Warm-up inference completed (len={Len})", warmup?.Length ?? 0);
+            _logger.LogInformation("Warm-up inference completed (len={Len})", warmup.Content.Length);
 
             _hostedModelWriter.SetLoaded(model);
         }

@@ -55,6 +55,7 @@ INCLUDE_PATH := $(VENDOR_DIR)/$(PROJECT)/$(LLAMA_VERSION)/include
 CACHE_DIR := $(VENDOR_DIR)/cache/$(LLAMA_VERSION)
 CHECKSUMS_DIR := checksums/llama
 CHECKSUMS_FILE := $(CHECKSUMS_DIR)/$(LLAMA_VERSION).sha256
+PIN_LLAMA_SCRIPT := scripts/pin_llama.sh
 
 ARTIFACT_NAME := $(PROJECT)-$(LLAMA_VERSION)-bin-$(PLATFORM).tar.gz
 ARTIFACT_URL := https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/releases/download/$(LLAMA_VERSION)/$(ARTIFACT_NAME)
@@ -88,6 +89,8 @@ BENCH_ITERATIONS ?= 100
 BENCH_CONCURRENCY ?= 5
 BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems."
 BENCH_GRPCURL ?= http://localhost:5000
+BENCH_LLAMARESTMAXNEWTOKENS ?= 512
+BENCH_LLAMARESTTEMPERATURE ?= 0.0
 
 # ------------------------------------------------------------
 # gRPC runtime config
@@ -102,7 +105,7 @@ PUBLISH_READY_TO_RUN ?= false
 # Phony targets
 # ------------------------------------------------------------
 .PHONY: \
-	all init verify clean native-build \
+	all init verify pin-llama clean native-build \
 	vendor/include vendor/binary \
 	native-integration-tests \
 	bench-llama-runtime-grpc bench-llama-rest \
@@ -113,11 +116,13 @@ PUBLISH_READY_TO_RUN ?= false
 # Vendor headers
 # ------------------------------------------------------------
 vendor/include:
-	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
-		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
-		exit 1; \
-	fi
-	@manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+	@set -euo pipefail; \
+		if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+			echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+			echo ">>> Add the pinned manifest for LLAMA_VERSION=$(LLAMA_VERSION) or run 'make pin-llama LLAMA_VERSION=bNNNN' when intentionally onboarding a new upstream release."; \
+			exit 1; \
+		fi; \
+	manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
 		echo ">>> Missing checksum entry for $(HEADERS_ARCHIVE_NAME) in $(CHECKSUMS_FILE)"; \
 		exit 1; \
 	}; \
@@ -141,11 +146,13 @@ vendor/include:
 # Vendor binaries
 # ------------------------------------------------------------
 vendor/binary:
-	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
-		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
-		exit 1; \
-	fi
-	@manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+	@set -euo pipefail; \
+		if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+			echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+			echo ">>> Add the pinned manifest for LLAMA_VERSION=$(LLAMA_VERSION) or run 'make pin-llama LLAMA_VERSION=bNNNN' when intentionally onboarding a new upstream release."; \
+			exit 1; \
+		fi; \
+	manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
 		echo ">>> Missing checksum entry for $(ARTIFACT_NAME) in $(CHECKSUMS_FILE)"; \
 		exit 1; \
 	}; \
@@ -174,31 +181,47 @@ init: vendor/include vendor/binary
 # Verify
 # ------------------------------------------------------------
 verify:
-	@if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
-		echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(HEADERS_ARCHIVE_PATH)" ]; then \
+	@set -euo pipefail; \
+		if [ ! -f "$(CHECKSUMS_FILE)" ]; then \
+			echo ">>> Missing checksum manifest $(CHECKSUMS_FILE)"; \
+			echo ">>> Add the pinned manifest for LLAMA_VERSION=$(LLAMA_VERSION) or run 'make pin-llama LLAMA_VERSION=bNNNN' when intentionally onboarding a new upstream release."; \
+			exit 1; \
+		fi; \
+	if [ ! -f "$(HEADERS_ARCHIVE_PATH)" ]; then \
 		echo ">>> Missing cached headers archive $(HEADERS_ARCHIVE_PATH). Run make init first."; \
 		exit 1; \
-	fi
-	@manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+	fi; \
+	manifest_entry="$$(awk '$$2 == "$(HEADERS_ARCHIVE_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
 		echo ">>> Missing checksum entry for $(HEADERS_ARCHIVE_NAME) in $(CHECKSUMS_FILE)"; \
 		exit 1; \
 	}; \
-	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -)
-	@if [ ! -f "$(ARTIFACT_CACHE_PATH)" ]; then \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -); \
+	if [ ! -f "$(ARTIFACT_CACHE_PATH)" ]; then \
 		echo ">>> Missing cached binary archive $(ARTIFACT_CACHE_PATH). Run make init first."; \
 		exit 1; \
-	fi
-	@manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
+	fi; \
+	manifest_entry="$$(awk '$$2 == "$(ARTIFACT_NAME)" { print; found=1 } END { if (!found) exit 1 }' "$(CHECKSUMS_FILE)")" || { \
 		echo ">>> Missing checksum entry for $(ARTIFACT_NAME) in $(CHECKSUMS_FILE)"; \
 		exit 1; \
 	}; \
-	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -)
-	@if [ -f "$(SHA_FILE)" ]; then \
+	printf '%s\n' "$$manifest_entry" | (cd "$(CACHE_DIR)" && $(SHA256SUM) -c -); \
+	if [ -f "$(SHA_FILE)" ]; then \
 		cd "$(VENDOR_PATH)" && $(SHA256SUM) -c SHA256SUMS; \
 	fi
+
+# ------------------------------------------------------------
+# llama.cpp version bump
+# ------------------------------------------------------------
+pin-llama:
+	@if [ "$(origin LLAMA_VERSION)" != "command line" ] || [ -z "$(LLAMA_VERSION)" ] || [ "$(LLAMA_VERSION)" = "unknown" ]; then \
+		echo ">>> Usage: make pin-llama LLAMA_VERSION=bNNNN"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(PIN_LLAMA_SCRIPT)" ]; then \
+		echo ">>> Missing pin helper $(PIN_LLAMA_SCRIPT)"; \
+		exit 1; \
+	fi
+	@bash "$(PIN_LLAMA_SCRIPT)" "$(CURDIR)" "$(LLAMA_VERSION)" "$(CHECKSUMS_DIR)" "$(GITHUB_ORG)" "$(GITHUB_REPO)"
 
 # ------------------------------------------------------------
 # Native build
@@ -269,6 +292,8 @@ bench-llama-rest:
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
 	BENCH_PROMPT=$(BENCH_PROMPT) \
+	BENCH_LLAMARESTMAXNEWTOKENS=$(BENCH_LLAMARESTMAXNEWTOKENS) \
+	BENCH_LLAMARESTTEMPERATURE=$(BENCH_LLAMARESTTEMPERATURE) \
 	dotnet run -c Release --project src/LlamaRuntime.Benchmarks
 
 # ------------------------------------------------------------

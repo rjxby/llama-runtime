@@ -32,22 +32,37 @@ typedef enum {
   LLAMA_ADAPTER_ERR_UNKNOWN = 100
 } llama_adapter_error_t;
 
+typedef struct {
+  int32_t max_new_tokens;
+  float temperature;
+  float top_p;
+  uint32_t seed;
+} llama_adapter_generation_params_t;
+
+typedef struct {
+  int32_t prompt_tokens;
+  int32_t output_tokens;
+  int32_t total_tokens;
+  int32_t output_bytes;
+} llama_adapter_infer_result_t;
+
 LLAMA_ADAPTER_API int llama_adapter_get_version(char *out,
                                                 size_t out_size) noexcept;
 LLAMA_ADAPTER_API int llama_load_model(const char *path,
                                        void **model_out) noexcept;
 LLAMA_ADAPTER_API int llama_unload_model(void *model) noexcept;
 LLAMA_ADAPTER_API int llama_create_context(void *model, int n_ctx, int n_batch,
-                                           int max_tokens,
                                            int generation_max_new_tokens,
                                            void **ctx_out) noexcept;
 LLAMA_ADAPTER_API int llama_remove_context(void *ctx) noexcept;
 LLAMA_ADAPTER_API int llama_context_reset(void *ctx) noexcept;
 LLAMA_ADAPTER_API int llama_count_tokens(void *ctx, const char *prompt,
                                          int32_t *token_count) noexcept;
-LLAMA_ADAPTER_API int llama_infer(void *ctx, const char *prompt, char *out,
-                                   size_t out_size,
-                                   int32_t *out_written) noexcept;
+LLAMA_ADAPTER_API int llama_infer(
+    void *ctx, const char *prompt,
+    const llama_adapter_generation_params_t *params,
+    char *out, size_t out_size,
+    llama_adapter_infer_result_t *result) noexcept;
 
 #ifdef __cplusplus
 }

@@ -14,6 +14,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             {
                 ["ApiKeys:Keys:0"] = ApiKey,
                 ["HostedModel:ModelPath"] = "test-model.gguf",
+                ["HostedModel:ModelId"] = "test-model",
                 ["Llama:Native:ContextSize"] = "32",
                 ["Llama:Native:BatchSize"] = "8",
                 ["Llama:Native:GenerationMaxNewTokens"] = "8",
@@ -33,7 +34,19 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             nativeMock.Setup(x => x.CountTokens(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
                 .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) => prompt.Length);
             nativeMock.Setup(x => x.Infer(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
-                .Returns("mocked response");
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) =>
+                {
+                    if (prompt.Length > 24)
+                    {
+                        throw new LlamaRuntime.Native.Contracts.NativeInvalidArgumentException("too long");
+                    }
+
+                    return new LlamaRuntime.Native.Contracts.NativeInferenceResult(
+                        "mocked response",
+                        prompt.Length,
+                        "mocked response".Length,
+                        prompt.Length + "mocked response".Length);
+                });
 
             services.AddSingleton(nativeMock.Object);
         });

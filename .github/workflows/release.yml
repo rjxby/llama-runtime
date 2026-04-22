@@ -22,7 +22,7 @@ jobs:
       run: |
         # Generate a temporary .env for the runner's execution
         echo "PLATFORM=macos-arm64" > .env
-        echo "LLAMA_VERSION=b8672" >> .env
+        echo "LLAMA_VERSION=b8868" >> .env
         echo "DOTNET_RUNTIME=osx-arm64" >> .env
         make init
 

@@ -36,19 +36,28 @@ int main(int argc, char **argv) {
   assert(model != NULL);
 
   void *ctx = NULL;
-  rc = llama_create_context(model, 4096, 512, 4096, 512, &ctx);
+  rc = llama_create_context(model, 4096, 512, 512, &ctx);
   assert_ok(rc, "create_context");
   assert(ctx != NULL);
 
   char output[4096] = {0};
-  int32_t written = 0;
-  rc = llama_infer(ctx, "Hello! Tell me a short sentence about llamas.", output,
-                   sizeof(output), &written);
+  llama_adapter_generation_params_t params = {512, 0.0f, 1.0f, 0xFFFFFFFFu};
+  llama_adapter_infer_result_t result = {0};
+  rc = llama_infer(ctx, "Hello! Tell me a short sentence about llamas.", &params,
+                   output, sizeof(output), &result);
   assert_ok(rc, "infer 1");
   printf("Inference 1 (truncated): %.200s\n", output);
+  printf("Inference 1 usage: prompt=%d output=%d total=%d bytes=%d\n",
+         result.prompt_tokens, result.output_tokens, result.total_tokens,
+         result.output_bytes);
 
   if (strlen(output) == 0) {
     fprintf(stderr, "FAIL: empty inference output (1)\n");
+    return 1;
+  }
+  if (result.prompt_tokens <= 0 || result.output_tokens <= 0 ||
+      result.total_tokens != result.prompt_tokens + result.output_tokens) {
+    fprintf(stderr, "FAIL: invalid inference usage stats (1)\n");
     return 1;
   }
 
@@ -56,13 +65,22 @@ int main(int argc, char **argv) {
   assert_ok(rc, "context_reset");
 
   memset(output, 0, sizeof(output));
-  rc = llama_infer(ctx, "Now tell me a short joke.", output, sizeof(output),
-                   &written);
+  result = {0};
+  rc = llama_infer(ctx, "Now tell me a short joke.", &params, output,
+                   sizeof(output), &result);
   assert_ok(rc, "infer 2");
   printf("Inference 2 (truncated): %.200s\n", output);
+  printf("Inference 2 usage: prompt=%d output=%d total=%d bytes=%d\n",
+         result.prompt_tokens, result.output_tokens, result.total_tokens,
+         result.output_bytes);
 
   if (strlen(output) == 0) {
     fprintf(stderr, "FAIL: empty inference output (2)\n");
+    return 1;
+  }
+  if (result.prompt_tokens <= 0 || result.output_tokens <= 0 ||
+      result.total_tokens != result.prompt_tokens + result.output_tokens) {
+    fprintf(stderr, "FAIL: invalid inference usage stats (2)\n");
     return 1;
   }
 

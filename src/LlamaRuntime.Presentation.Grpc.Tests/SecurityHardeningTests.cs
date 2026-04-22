@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using LlamaRuntime.Common.Tests;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
@@ -28,16 +29,14 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
     }
 
     [Theory]
-    [InlineData("-1", "32", "128", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.ContextSize))]
-    [InlineData("32", "-1", "128", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.BatchSize))]
-    [InlineData("32", "64", "128", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.BatchSize))]
-    [InlineData("32", "8", "128", "32", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.GenerationMaxNewTokens))]
-    [InlineData("32", "8", "300000", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.MaxTokens))]
-    [InlineData("32", "8", "128", "8", "20000000", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.InferenceBufferSize))]
+    [InlineData("-1", "32", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.ContextSize))]
+    [InlineData("32", "-1", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.BatchSize))]
+    [InlineData("32", "64", "8", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.BatchSize))]
+    [InlineData("32", "8", "32", "1024", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.GenerationMaxNewTokens))]
+    [InlineData("32", "8", "8", "20000000", nameof(LlamaRuntime.Native.Contracts.Configuration.LlamaNativeOptions.InferenceBufferSize))]
     public async Task AddLlamaNative_InvalidOptions_FailOnStartup(
         string contextSize,
         string batchSize,
-        string maxTokens,
         string generationMaxNewTokens,
         string inferenceBufferSize,
         string expectedOptionName)
@@ -48,7 +47,6 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
             ["Llama:Native:NativeLibraryPath"] = "test-native",
             ["Llama:Native:ContextSize"] = contextSize,
             ["Llama:Native:BatchSize"] = batchSize,
-            ["Llama:Native:MaxTokens"] = maxTokens,
             ["Llama:Native:GenerationMaxNewTokens"] = generationMaxNewTokens,
             ["Llama:Native:InferenceBufferSize"] = inferenceBufferSize
         });
@@ -84,9 +82,9 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
         }).ResponseAsync;
 
         var logs = string.Join(Environment.NewLine, logSink.Messages);
-        Assert.NotEmpty(reply.Result);
+        Assert.NotEmpty(reply.Content);
         Assert.DoesNotContain(prompt, logs, StringComparison.Ordinal);
-        Assert.DoesNotContain(reply.Result, logs, StringComparison.Ordinal);
+        Assert.DoesNotContain(reply.Content, logs, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -136,7 +134,7 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
-                return "ok";
+                return new LlamaRuntime.Engine.Contracts.InferenceResult("ok", 5, 2, 7);
             });
 
         var coordinator = new QueuedInferenceCoordinator(
@@ -159,7 +157,7 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
             gate.TrySetResult();
 
             var result = await inFlight;
-            Assert.Equal("ok", result);
+            Assert.Equal("ok", result.Content);
         }
         finally
         {

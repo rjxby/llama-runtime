@@ -9,6 +9,7 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 * [Overview](#overview)
 * [Features](#features)
 * [Architecture](#architecture)
+* [Documentation](#documentation)
 * [Quickstart](#quickstart)
 
   * [Prerequisites](#prerequisites)
@@ -32,7 +33,7 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 
 > **`llama-runtime-grpc`**
 
-This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface.
+This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface. The public gRPC contract is `llama.v2`, which includes `Generate`, `EstimateTokens`, and `GetCapabilities`.
 
 ---
 
@@ -40,6 +41,7 @@ This runtime is optimized for predictable serving: bounded queueing, pooled cont
 
 * **Native-first** — direct integration with `llama.cpp` for maximum inference performance.
 * **gRPC runtime** — single-file, self-contained `llama-runtime-grpc` built on .NET 10.
+* **Normalized runtime contract** — `llama.v2` exposes model identity, usage, runtime trace fields, and capability discovery.
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
@@ -60,6 +62,15 @@ llama.cpp (C/C++)
 
 ---
 
+## Documentation
+
+* [docs/architecture.md](docs/architecture.md) — runtime ownership, threading, and lifecycle details.
+* [docs/benchmarking.md](docs/benchmarking.md) — reproducible gRPC vs. `llama.cpp` REST benchmark workflow.
+* [native/README.md](native/README.md) — native adapter design, API surface, and native build/test notes.
+* [docs/runtime-roadmap.md](docs/runtime-roadmap.md) — planned runtime work and roadmap notes.
+
+---
+
 ## Quickstart
 
 ### Prerequisites
@@ -71,7 +82,7 @@ llama.cpp (C/C++)
 
 ### 1. Initialize dependencies
 
-Downloads headers and platform-specific `llama.cpp` binaries and verifies the downloaded archives against repo-pinned SHA-256 manifests.
+Downloads headers and platform-specific `llama.cpp` binaries and verifies the downloaded archives against the repo-pinned SHA-256 manifest for the supported `llama.cpp` revision.
 
 ```bash
 make init
@@ -81,6 +92,12 @@ Validate the cached upstream archives again at any time with:
 
 ```bash
 make verify
+```
+
+Maintainers should change the supported `llama.cpp` pin with:
+
+```bash
+make pin-llama LLAMA_VERSION=bNNNN
 ```
 
 ### 2. Build the package
@@ -108,11 +125,13 @@ The package build disables `PublishReadyToRun` by default on all targets. We rep
 make llama-runtime-grpc-run
 ```
 
-You can set the hosted model path using an environment variable or your `.env` file:
+You must set both the hosted model path and the public model id using environment variables or your `.env` file:
 
 ```bash
 # example override
-HostedModel__ModelPath=/absolute/path/to/your/model.gguf make llama-runtime-grpc-run
+HostedModel__ModelPath=/absolute/path/to/your/model.gguf \
+HostedModel__ModelId=stories15m \
+make llama-runtime-grpc-run
 ```
 
 ---
@@ -141,8 +160,10 @@ chmod +x ./LlamaRuntime.Presentation.Grpc
 4. **Run**
 
 ```bash
-# example using an environment variable
-HostedModel__ModelPath="/abs/path/to/model.gguf" ./LlamaRuntime.Presentation.Grpc
+# example using environment variables
+HostedModel__ModelPath="/abs/path/to/model.gguf" \
+HostedModel__ModelId="stories15m" \
+./LlamaRuntime.Presentation.Grpc
 ```
 
 ### macOS Gatekeeper / Quarantine note
@@ -177,6 +198,7 @@ make bench-llama-rest
 ```
 
 Benchmarks include latency and throughput comparisons. Use them to validate queue sizing, worker counts, and deployment tradeoffs.
+For the full harness setup, environment variables, and output format, see [docs/benchmarking.md](docs/benchmarking.md).
 
 ---
 
@@ -192,10 +214,12 @@ Example `.env` values (required):
 ```env
 PLATFORM=macos-arm64
 # llama.cpp source/release version embedded into the native adapter
-LLAMA_VERSION=b8672
+LLAMA_VERSION=b8868
 DOTNET_RUNTIME=osx-arm64
 LLAMA_REST_PORT=4999
 ```
+
+`LLAMA_VERSION` is a repo pin, not a per-machine convenience override. When intentionally changing the supported upstream revision, use `make pin-llama LLAMA_VERSION=bNNNN` so the checksum manifest, vendored artifacts, and tracked docs stay aligned.
 
 Packaging overrides:
 
@@ -214,7 +238,7 @@ Inference__AcquireTimeout=00:00:30
 Inference__StartupWarmupPrompt=Hello
 ```
 
-The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
+The runtime serves a single hosted model. Requests enter a bounded queue and are executed by a fixed worker pool. `Inference__WorkerCount` controls concurrent inference capacity. Startup always performs one warm-up inference before readiness goes healthy. Cancellation is immediate while queued and best-effort once native inference has started.
 
 `Inference__AcquireTimeout` controls how long a request may wait to enter the bounded queue. It is not a hard kill timeout for native inference that has already started.
 
@@ -224,7 +248,6 @@ Native runtime settings are validated on startup and the process fails fast if a
 Llama__Native__NativeLibraryPath=required
 Llama__Native__ContextSize=1..65536
 Llama__Native__BatchSize=1..4096 and <= ContextSize
-Llama__Native__MaxTokens=1..262144
 Llama__Native__GenerationMaxNewTokens=1..16384 and < ContextSize
 Llama__Native__InferenceBufferSize=1..16777216
 ```
@@ -255,14 +278,6 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 Third-party notices:
 
 * **llama.cpp** — MIT. © Georgi Gerganov & contributors. [https://github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
-
----
-
-## Architecture Notes
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime ownership, threading, and lifecycle details.
-
----
 
 ## Why gRPC?
 

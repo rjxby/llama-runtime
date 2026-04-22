@@ -16,5 +16,11 @@ public class BenchmarkOptions
 
     public string? ApiKey { get; set; }
 
+    public bool StrictResponseValidation { get; set; } = true;
+
     public string? OutputFile { get; set; }
+
+    public int LlamaRestMaxNewTokens { get; set; } = 512;
+
+    public double LlamaRestTemperature { get; set; } = 0.0;
 }

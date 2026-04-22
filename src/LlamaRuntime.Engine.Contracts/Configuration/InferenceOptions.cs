@@ -1,4 +1,4 @@
-namespace LlamaRuntime.Presentation.Grpc.Configuration;
+namespace LlamaRuntime.Engine.Contracts.Configuration;
 
 public sealed class InferenceOptions
 {

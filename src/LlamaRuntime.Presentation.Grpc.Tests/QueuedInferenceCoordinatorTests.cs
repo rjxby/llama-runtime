@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;
@@ -25,7 +26,7 @@ public sealed class QueuedInferenceCoordinatorTests
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
-                return "ok";
+                return new InferenceResult("ok", 5, 2, 7);
             });
 
         var coordinator = new QueuedInferenceCoordinator(
@@ -76,7 +77,7 @@ public sealed class QueuedInferenceCoordinatorTests
             {
                 warmupStarted.TrySetResult();
                 await allowWarmupToFinish.Task;
-                return "warmed";
+                return new InferenceResult("warmed", 5, 6, 11);
             });
         provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -86,7 +87,7 @@ public sealed class QueuedInferenceCoordinatorTests
             provider.Object,
             store,
             store,
-            Options.Create(new HostedModelOptions { ModelPath = "model.gguf" }),
+            Options.Create(new HostedModelOptions { ModelPath = "model.gguf", ModelId = "model" }),
             Options.Create(new InferenceOptions { StartupWarmupPrompt = "Hello" }));
 
         var startTask = worker.StartAsync(CancellationToken.None);
@@ -134,12 +135,41 @@ public sealed class QueuedInferenceCoordinatorTests
             provider.Object,
             store,
             store,
-            Options.Create(new HostedModelOptions { ModelPath = "model.gguf" }),
+            Options.Create(new HostedModelOptions { ModelPath = "model.gguf", ModelId = "model" }),
             Options.Create(new InferenceOptions { StartupWarmupPrompt = "Hello" }));
 
         var ex = await Assert.ThrowsAsync<InferenceException>(() => worker.StartAsync(CancellationToken.None));
 
         Assert.Equal("warmup failed", ex.Message);
+        Assert.Equal(HostedModelState.Failed, store.GetSnapshot().State);
+        provider.Verify(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ModelLoaderWorker_BlankWarmupOutput_Fails_Startup_And_Unloads_Model()
+    {
+        var provider = new Mock<ILlamaProvider>();
+        var store = new HostedModelStore();
+        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
+
+        provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(model);
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
+        provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var worker = new ModelLoaderWorker(
+            NullLogger<ModelLoaderWorker>.Instance,
+            provider.Object,
+            store,
+            store,
+            Options.Create(new HostedModelOptions { ModelPath = "model.gguf", ModelId = "model" }),
+            Options.Create(new InferenceOptions { StartupWarmupPrompt = "Hello" }));
+
+        var ex = await Assert.ThrowsAsync<EmptyInferenceOutputException>(() => worker.StartAsync(CancellationToken.None));
+
+        Assert.Equal("Inference returned blank output for a text-generation request.", ex.Message);
         Assert.Equal(HostedModelState.Failed, store.GetSnapshot().State);
         provider.Verify(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()), Times.Once);
     }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace LlamaRuntime.Benchmarks.Common;
 
@@ -18,7 +19,8 @@ public static class BenchmarkRunner
     public static async Task<BenchmarkResult> RunAsync(
         int iterations,
         int concurrency,
-        Func<int, Task<bool>> invokeAsync)
+        Func<int, Task<BenchmarkInvocationResult>> invokeAsync,
+        ILogger logger)
     {
         var timings = new List<long>();
         int successCount = 0;
@@ -30,12 +32,12 @@ public static class BenchmarkRunner
             try
             {
                 var sw = Stopwatch.StartNew();
-                var success = await invokeAsync(idx);
+                var result = await invokeAsync(idx).ConfigureAwait(false);
                 sw.Stop();
 
                 lock (lockObj)
                 {
-                    if (success)
+                    if (result.Success)
                     {
                         timings.Add(sw.ElapsedMilliseconds);
                         successCount++;
@@ -46,9 +48,21 @@ public static class BenchmarkRunner
                     }
                 }
 
-                string status = success ? "OK" : "ERR";
-                Console.WriteLine(
-                    $"Run {idx,-3} | {sw.ElapsedMilliseconds,5} ms | {status}");
+                if (result.Success)
+                {
+                    logger.LogInformation(
+                        "Run {Iteration} completed in {ElapsedMs} ms with status OK",
+                        idx,
+                        sw.ElapsedMilliseconds);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Run {Iteration} completed in {ElapsedMs} ms with status ERR: {FailureReason}",
+                        idx,
+                        sw.ElapsedMilliseconds,
+                        result.FailureReason ?? "Unknown failure");
+                }
             }
             catch (Exception ex)
             {
@@ -56,11 +70,12 @@ public static class BenchmarkRunner
                 {
                     errorCount++;
                 }
-                Console.WriteLine($"Run {idx,-3} | ERROR: {ex.Message}");
+
+                logger.LogError(ex, "Run {Iteration} failed with an exception", idx);
             }
         }
 
-        Console.WriteLine("Running benchmark...");
+        logger.LogInformation("Running benchmark...");
         var total = Stopwatch.StartNew();
 
         for (int i = 0; i < iterations; i += concurrency)
@@ -76,7 +91,12 @@ public static class BenchmarkRunner
 
         if (timings.Count == 0)
         {
-             return new BenchmarkResult(total.ElapsedMilliseconds, 0, 0, 0, 0, 0, successCount, errorCount);
+            logger.LogInformation(
+                "Benchmark completed with no successful runs. Success={SuccessCount} Errors={ErrorCount}",
+                successCount,
+                errorCount);
+
+            return new BenchmarkResult(total.ElapsedMilliseconds, 0, 0, 0, 0, 0, successCount, errorCount);
         }
 
         timings.Sort();
@@ -89,15 +109,15 @@ public static class BenchmarkRunner
         var p99 = P(timings, 0.99);
         var throughput = iterations * 1000.0 / total.ElapsedMilliseconds;
 
-        Console.WriteLine("\n=== Results ===");
-        Console.WriteLine($"Total wall time : {total.ElapsedMilliseconds} ms");
-        Console.WriteLine($"Avg latency     : {avg:F1} ms");
-        Console.WriteLine($"P50 latency     : {p50} ms");
-        Console.WriteLine($"P90 latency     : {p90} ms");
-        Console.WriteLine($"P99 latency     : {p99} ms");
-        Console.WriteLine($"Throughput      : {throughput:F2} req/s");
-        Console.WriteLine($"Success         : {successCount}");
-        Console.WriteLine($"Errors          : {errorCount}");
+        logger.LogInformation("=== Results ===");
+        logger.LogInformation("Total wall time : {TotalTimeMs} ms", total.ElapsedMilliseconds);
+        logger.LogInformation("Avg latency     : {AvgLatencyMs:F1} ms", avg);
+        logger.LogInformation("P50 latency     : {P50} ms", p50);
+        logger.LogInformation("P90 latency     : {P90} ms", p90);
+        logger.LogInformation("P99 latency     : {P99} ms", p99);
+        logger.LogInformation("Throughput      : {ThroughputRps:F2} req/s", throughput);
+        logger.LogInformation("Success         : {SuccessCount}", successCount);
+        logger.LogInformation("Errors          : {ErrorCount}", errorCount);
 
         return new BenchmarkResult(
             total.ElapsedMilliseconds,
