@@ -5,5 +5,6 @@ namespace LlamaRuntime.Engine.Contracts;
 /// </summary>
 public interface IEngineModel : IDisposable
 {
-    string Id { get; }
+    string SourcePath { get; }
+    ModelMetadata? Metadata { get; }
 }

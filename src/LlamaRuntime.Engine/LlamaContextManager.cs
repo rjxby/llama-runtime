@@ -40,6 +40,15 @@ public sealed class LlamaContextManager : ILlamaContextManager
         return new LlamaSession(_native, ctx, handle => pool.Release(handle));
     }
 
+    public void PrimeModelContext(IEngineModel model, LlamaContextHandle context)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(context);
+
+        GetPool(model).Prime(context);
+    }
+
     private ContextPool GetPool(IEngineModel model)
     {
         return _pools.GetOrAdd(model, m =>
@@ -51,6 +60,8 @@ public sealed class LlamaContextManager : ILlamaContextManager
 
     public void ReleaseModelResources(IEngineModel model)
     {
+        ArgumentNullException.ThrowIfNull(model);
+
         if (_pools.TryRemove(model, out var pool))
         {
             try { pool.Dispose(); } catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing context pool"); }

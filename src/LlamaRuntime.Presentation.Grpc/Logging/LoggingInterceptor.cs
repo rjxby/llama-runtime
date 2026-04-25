@@ -32,6 +32,18 @@ public class LoggingInterceptor : Interceptor
 
             return response;
         }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+        {
+            stopwatch.Stop();
+            _logger.LogInformation("gRPC Request cancelled: {Method} after {ElapsedMs}ms", methodName, stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+            _logger.LogInformation("gRPC Request cancelled: {Method} after {ElapsedMs}ms", methodName, stopwatch.ElapsedMilliseconds);
+            throw;
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();

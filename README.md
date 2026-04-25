@@ -42,6 +42,7 @@ This runtime is optimized for predictable serving: bounded queueing, pooled cont
 * **Native-first** — direct integration with `llama.cpp` for maximum inference performance.
 * **gRPC runtime** — single-file, self-contained `llama-runtime-grpc` built on .NET 10.
 * **Normalized runtime contract** — `llama.v2` exposes model identity, usage, runtime trace fields, and capability discovery.
+* **Load-time capability discovery** — `GetCapabilities` reports the effective features of the currently loaded model/runtime pair instead of relying on static config assumptions.
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
@@ -203,6 +204,8 @@ For the full harness setup, environment variables, and output format, see [docs/
 ---
 
 ## Configuration
+
+Call `GetCapabilities` before sending inference traffic if your client or proxy needs prompt-budget guarantees. The runtime reports the effective request-time context size from the actual created `llama_context`, and startup fails if the configured runtime context does not match what `llama.cpp` actually created for the loaded model.
 
 Core environment variables usually live in platform-specific env files:
 

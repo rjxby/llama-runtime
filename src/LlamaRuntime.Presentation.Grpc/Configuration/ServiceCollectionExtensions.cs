@@ -1,6 +1,5 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine;
 using LlamaRuntime.Engine.Contracts.Configuration;
@@ -8,21 +7,25 @@ using LlamaRuntime.Native;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.HealthChecks;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
+using LlamaRuntime.Presentation.Grpc.Inference;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.Configuration;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddLlamaCore(this IServiceCollection services)
+    public static IServiceCollection AddHostedRuntime(this IServiceCollection services)
     {
         services.AddLlamaNative();
-        services.AddSingleton<HostedModelStore>();
-        services.AddSingleton<IHostedModelStateReader>(sp => sp.GetRequiredService<HostedModelStore>());
-        services.AddSingleton<IHostedModelStateWriter>(sp => sp.GetRequiredService<HostedModelStore>());
+        services.AddLlamaProvider();
+
+        services.AddSingleton<HostedModel>();
+        services.AddSingleton<IHostedModel>(serviceProvider => serviceProvider.GetRequiredService<HostedModel>());
+        services.AddSingleton<IHostedRuntimeInfo>(serviceProvider => serviceProvider.GetRequiredService<HostedModel>());
+        services.AddSingleton<InferenceWorkQueue>();
+        services.AddSingleton<IInferenceCoordinator, QueuedInferenceCoordinator>();
         services.AddHostedService<ModelLoaderWorker>();
-        services.AddSingleton<QueuedInferenceCoordinator>();
-        services.AddHostedService(sp => sp.GetRequiredService<QueuedInferenceCoordinator>());
+        services.AddHostedService<QueuedInferenceWorker>();
 
         services.AddOptions<InferenceOptions>()
                 .BindConfiguration(InferenceOptions.SectionName)
@@ -32,13 +35,6 @@ public static class ServiceCollectionExtensions
                 .Validate(o => !string.IsNullOrWhiteSpace(o.StartupWarmupPrompt), $"{nameof(InferenceOptions.StartupWarmupPrompt)} must be set")
                 .ValidateOnStart();
 
-        services.AddLlamaProvider();
-
-        return services;
-    }
-
-    public static IServiceCollection AddHostedModel(this IServiceCollection services)
-    {
         services.AddOptions<HostedModelOptions>()
                 .BindConfiguration(HostedModelOptions.SectionName)
                 .Validate(o => !string.IsNullOrWhiteSpace(o.ModelPath),
@@ -97,7 +93,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddLlamaHealthChecks(this IServiceCollection services)
     {
         services.AddHealthChecks()
-                .AddCheck<ModelReadyHealthCheck>("model_ready");
+                .AddCheck<ModelReadyHealthCheck>(LlamaHealthChecks.ModelReady);
         return services;
     }
 }

@@ -5,4 +5,5 @@ namespace LlamaRuntime.Presentation.Grpc.ModelHosting;
 public sealed record HostedModelSnapshot(
     HostedModelState State,
     IEngineModel? Model,
-    string? FailureMessage = null);
+    string? FailureMessage = null,
+    string? ConfiguredModelId = null);

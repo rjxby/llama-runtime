@@ -46,14 +46,27 @@ typedef struct {
   int32_t output_bytes;
 } llama_adapter_infer_result_t;
 
+typedef struct {
+  int32_t training_context_size;
+  int32_t tokenizer_type;
+} llama_adapter_model_metadata_t;
+
+typedef struct {
+  int32_t context_size;
+} llama_adapter_context_metadata_t;
+
 LLAMA_ADAPTER_API int llama_adapter_get_version(char *out,
                                                 size_t out_size) noexcept;
 LLAMA_ADAPTER_API int llama_load_model(const char *path,
                                        void **model_out) noexcept;
+LLAMA_ADAPTER_API int llama_model_get_metadata(
+    void *model, llama_adapter_model_metadata_t *metadata_out) noexcept;
 LLAMA_ADAPTER_API int llama_unload_model(void *model) noexcept;
 LLAMA_ADAPTER_API int llama_create_context(void *model, int n_ctx, int n_batch,
                                            int generation_max_new_tokens,
                                            void **ctx_out) noexcept;
+LLAMA_ADAPTER_API int llama_context_get_metadata(
+    void *ctx, llama_adapter_context_metadata_t *metadata_out) noexcept;
 LLAMA_ADAPTER_API int llama_remove_context(void *ctx) noexcept;
 LLAMA_ADAPTER_API int llama_context_reset(void *ctx) noexcept;
 LLAMA_ADAPTER_API int llama_count_tokens(void *ctx, const char *prompt,

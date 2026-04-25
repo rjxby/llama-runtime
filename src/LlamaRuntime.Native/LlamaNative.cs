@@ -49,6 +49,32 @@ public sealed class LlamaNative : ILlamaNative
         return LlamaModelHandle.FromIntPtr(ptr);
     }
 
+    public NativeModelMetadata GetModelMetadata(LlamaModelHandle model)
+    {
+        EnsureNotDisposed();
+        if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
+
+        var rc = NativeMethods.llama_model_get_metadata(model, out var metadata);
+        ThrowIfError(rc, "GetModelMetadata");
+
+        var tokenizerType = Enum.IsDefined(typeof(NativeTokenizerType), metadata.TokenizerType)
+            ? (NativeTokenizerType)metadata.TokenizerType
+            : NativeTokenizerType.Unknown;
+
+        return new NativeModelMetadata(metadata.TrainingContextSize, tokenizerType);
+    }
+
+    public NativeContextMetadata GetContextMetadata(LlamaContextHandle context)
+    {
+        EnsureNotDisposed();
+        if (context == null || context.IsInvalid) throw new NativeInvalidArgumentException("context is null or invalid");
+
+        var rc = NativeMethods.llama_context_get_metadata(context, out var metadata);
+        ThrowIfError(rc, "GetContextMetadata");
+
+        return new NativeContextMetadata(metadata.ContextSize);
+    }
+
     public void UnloadModel(LlamaModelHandle model)
     {
         EnsureNotDisposed();
@@ -147,7 +173,7 @@ public sealed class LlamaNative : ILlamaNative
 
     private void EnsureNotDisposed()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(NativeLibrary));
+        if (_disposed) throw new ObjectDisposedException(nameof(LlamaNative));
     }
 
     public void Dispose()

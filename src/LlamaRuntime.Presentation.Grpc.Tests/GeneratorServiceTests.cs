@@ -1,10 +1,7 @@
 using Grpc.Core;
 using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Engine.Contracts;
-using LlamaRuntime.Engine.Contracts.Configuration;
-using LlamaRuntime.Native.Contracts.Configuration;
-using LlamaRuntime.Presentation.Grpc.Configuration;
-using LlamaRuntime.Presentation.Grpc.HostedServices;
+using LlamaRuntime.Presentation.Grpc.Inference;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 using LlamaRuntime.Presentation.Grpc.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,156 +16,94 @@ public sealed class GeneratorServiceTests
     [Fact]
     public async Task Generate_BlankInferenceOutput_ReturnsInternalError()
     {
-        var provider = new Mock<ILlamaProvider>();
-        var store = new HostedModelStore();
-        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
-        store.SetLoaded(model);
-
-        var coordinator = new QueuedInferenceCoordinator(
-            provider.Object,
-            store,
-            Options.Create(new InferenceOptions
-            {
-                ChannelCapacity = 1,
-                WorkerCount = 1,
-                AcquireTimeout = TimeSpan.FromSeconds(1)
-            }),
-            NullLogger<QueuedInferenceCoordinator>.Instance);
-
-        provider.Setup(p => p.InferAsync(model, "world", It.IsAny<CancellationToken>()))
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "blank-output"))
             .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
 
-        await coordinator.StartAsync(CancellationToken.None);
-        try
-        {
-            var service = new GeneratorService(
-                NullLogger<GeneratorService>.Instance,
-                store,
-                coordinator,
-                Options.Create(new LlamaNativeOptions
-                {
-                    NativeLibraryPath = "test-native",
-                    ContextSize = 32,
-                    GenerationMaxNewTokens = 8
-                }),
-                Options.Create(new HostedModelOptions
-                {
-                    ModelPath = "test-model.gguf",
-                    ModelId = "test-model"
-                }));
+        var service = CreateService(coordinator);
 
-            var ex = await Assert.ThrowsAsync<RpcException>(() =>
-                service.Generate(
-                    new GenerateRequest
-                    {
-                        RequestId = "blank-output",
-                        Prompt = "world"
-                    },
-                    TestServerCallContext.Create()));
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "blank-output",
+                    Prompt = "world"
+                },
+                TestServerCallContext.Create()));
 
-            Assert.Equal(StatusCode.Internal, ex.StatusCode);
-            Assert.Equal("Inference returned blank output for a text-generation request.", ex.Status.Detail);
-            Assert.Equal(RuntimeErrorMetadata.InferenceFailedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal(StatusCode.Internal, ex.StatusCode);
+        Assert.Equal("Inference returned blank output for a text-generation request.", ex.Status.Detail);
+        Assert.Equal(RuntimeErrorMetadata.InferenceFailedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
     }
 
     [Fact]
     public async Task Generate_JsonObjectResponseFormat_ReturnsUnsupportedResponseFormatTrailer()
     {
-        var (service, coordinator) = await CreateStartedServiceAsync();
+        var service = CreateService();
 
-        try
-        {
-            var ex = await Assert.ThrowsAsync<RpcException>(() =>
-                service.Generate(
-                    new GenerateRequest
-                    {
-                        RequestId = "json-mode",
-                        Prompt = "world",
-                        ResponseFormat = new ResponseFormat { Type = "json_object" }
-                    },
-                    TestServerCallContext.Create()));
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "json-mode",
+                    Prompt = "world",
+                    ResponseFormat = new ResponseFormat { Type = "json_object" }
+                },
+                TestServerCallContext.Create()));
 
-            Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-            Assert.Equal(RuntimeErrorMetadata.UnsupportedResponseFormatCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.UnsupportedResponseFormatCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
     }
 
     [Fact]
     public async Task Generate_NonDefaultGenerationOverride_ReturnsInvalidArgumentTrailer()
     {
-        var (service, coordinator) = await CreateStartedServiceAsync();
+        var service = CreateService();
 
-        try
-        {
-            var ex = await Assert.ThrowsAsync<RpcException>(() =>
-                service.Generate(
-                    new GenerateRequest
-                    {
-                        RequestId = "override",
-                        Prompt = "world",
-                        Generation = new GenerationOptions { Temperature = 0.3f }
-                    },
-                    TestServerCallContext.Create()));
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "override",
+                    Prompt = "world",
+                    Generation = new GenerationOptions { Temperature = 0.3f }
+                },
+                TestServerCallContext.Create()));
 
-            Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-            Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-            Assert.Contains("generation overrides", ex.Status.Detail);
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Contains("generation overrides", ex.Status.Detail);
     }
 
     [Fact]
     public async Task Generate_AtomicInferenceFailure_ReturnsInternalErrorTrailer()
     {
-        var provider = new Mock<ILlamaProvider>();
-        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
-        provider.Setup(p => p.InferAsync(model, "world", It.IsAny<CancellationToken>()))
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "usage-fail"))
             .ThrowsAsync(new InferenceException("count failed"));
 
-        var (service, coordinator) = await CreateStartedServiceAsync(provider: provider, model: model);
+        var service = CreateService(coordinator);
 
-        try
-        {
-            var ex = await Assert.ThrowsAsync<RpcException>(() =>
-                service.Generate(
-                    new GenerateRequest
-                    {
-                        RequestId = "usage-fail",
-                        Prompt = "world"
-                    },
-                    TestServerCallContext.Create()));
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "usage-fail",
+                    Prompt = "world"
+                },
+                TestServerCallContext.Create()));
 
-            Assert.Equal(StatusCode.Internal, ex.StatusCode);
-            Assert.Equal(RuntimeErrorMetadata.InferenceFailedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-            Assert.Equal("count failed", ex.Status.Detail);
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal(StatusCode.Internal, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InferenceFailedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal("count failed", ex.Status.Detail);
     }
 
     [Fact]
     public async Task GetCapabilities_UsesConfiguredModelId()
     {
-        var service = CreateService(
-            hostedModelOptions: new HostedModelOptions
-            {
-                ModelPath = "models/test-model.gguf",
-                ModelId = "public-model"
-            });
+        var hostedModel = CreateHostedModel();
+        hostedModel.SetLoaded(CreateModel("/tmp/models/actual.gguf"), "public-model");
+        var service = CreateService(hostedModel: hostedModel);
 
         var reply = await service.GetCapabilities(new GetCapabilitiesRequest(), TestServerCallContext.Create());
 
@@ -176,22 +111,67 @@ public sealed class GeneratorServiceTests
         Assert.False(reply.SupportsStructuredOutput);
         Assert.False(reply.SupportsJsonObjectOutput);
         Assert.False(reply.SupportsSpeculativeDecoding);
-        Assert.Equal("llama_cpp", reply.TokenizerFamily);
+        Assert.Equal("sentencepiece", reply.TokenizerFamily);
     }
 
     [Fact]
-    public async Task GetCapabilities_UsesRequiredModelId()
+    public async Task GetCapabilities_FallsBackToSanitizedSourceName()
     {
-        var service = CreateService(
-            hostedModelOptions: new HostedModelOptions
-            {
-                ModelPath = "/tmp/models/fallback-model.gguf",
-                ModelId = "required-model-id"
-            });
+        var hostedModel = CreateHostedModel();
+        hostedModel.SetLoaded(CreateModel("/tmp/models/required.gguf"));
+        var service = CreateService(hostedModel: hostedModel);
 
         var reply = await service.GetCapabilities(new GetCapabilitiesRequest(), TestServerCallContext.Create());
 
-        Assert.Equal("required-model-id", reply.ModelId);
+        Assert.Equal("required", reply.ModelId);
+    }
+
+    [Fact]
+    public async Task EstimateTokens_UsesLoadedModelEffectiveContext()
+    {
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.CountTokensAsync("hello", It.IsAny<CancellationToken>(), null))
+            .ReturnsAsync(5);
+
+        var hostedModel = CreateHostedModel();
+        hostedModel.SetLoaded(CreateModel(contextSize: 16), "test-model");
+        var service = CreateService(coordinator, hostedModel);
+
+        var reply = await service.EstimateTokens(
+            new EstimateTokensRequest
+            {
+                Prompt = "hello"
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal(5, reply.TokenCount);
+        Assert.Equal(16, reply.ContextSize);
+        Assert.Equal(8, reply.ReservedOutputTokens);
+        Assert.Equal(8, reply.MaxAllowedInputTokens);
+    }
+
+    [Fact]
+    public async Task Generate_MaxOutputTokensValidation_UsesLoadedModelEffectiveContext()
+    {
+        var hostedModel = CreateHostedModel();
+        hostedModel.SetLoaded(CreateModel(contextSize: 16), "test-model");
+        var service = CreateService(hostedModel: hostedModel);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "max-output",
+                    Prompt = "world",
+                    Generation = new GenerationOptions
+                    {
+                        MaxOutputTokens = 16
+                    }
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Contains("effective context size 16", ex.Status.Detail);
     }
 
     [Theory]
@@ -204,11 +184,8 @@ public sealed class GeneratorServiceTests
         string expectedCode,
         string expectedMessage)
     {
-        var provider = new Mock<ILlamaProvider>();
-        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
-
-        var (service, coordinator) = await CreateStartedServiceAsync(provider: provider, model: model);
-        provider.Setup(p => p.InferAsync(model, "world", It.IsAny<CancellationToken>()))
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), scenario))
             .ThrowsAsync(scenario switch
             {
                 "prompt_budget_exceeded" => new PromptBudgetExceededException("Prompt exceeds input budget"),
@@ -216,25 +193,20 @@ public sealed class GeneratorServiceTests
                 _ => new InferenceException("Inference failed")
             });
 
-        try
-        {
-            var ex = await Assert.ThrowsAsync<RpcException>(() =>
-                service.Generate(
-                    new GenerateRequest
-                    {
-                        RequestId = scenario,
-                        Prompt = "world"
-                    },
-                    TestServerCallContext.Create()));
+        var service = CreateService(coordinator);
 
-            Assert.Equal(expectedStatus, ex.StatusCode);
-            Assert.Equal(expectedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-            Assert.Equal(expectedMessage, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorMessageTrailerName));
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = scenario,
+                    Prompt = "world"
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(expectedStatus, ex.StatusCode);
+        Assert.Equal(expectedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal(expectedMessage, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorMessageTrailerName));
     }
 
     [Fact]
@@ -258,8 +230,11 @@ public sealed class GeneratorServiceTests
     [Fact]
     public async Task Generate_QueueRejected_ReturnsNormalizedTrailers()
     {
-        var (service, coordinator) = await CreateStartedServiceAsync();
-        await coordinator.StopAsync(CancellationToken.None);
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "queue-rejected"))
+            .ThrowsAsync(new InferenceQueueRejectedException("Inference queue is closed because the runtime is stopping."));
+
+        var service = CreateService(coordinator);
 
         var ex = await Assert.ThrowsAsync<RpcException>(() =>
             service.Generate(
@@ -278,151 +253,112 @@ public sealed class GeneratorServiceTests
     public async Task Generate_Cancelled_ReturnsNormalizedTrailers()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var provider = new Mock<ILlamaProvider>();
-        var model = Mock.Of<IEngineModel>(m => m.Id == "model");
-
-        provider.Setup(p => p.InferAsync(model, "world", It.IsAny<CancellationToken>()))
-            .Returns(async (IEngineModel _, string _, CancellationToken ct) =>
+        var coordinator = CreateCoordinator();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "cancelled"))
+            .Returns(async (string _, CancellationToken ct, string? _) =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
                 return CreateInferenceResult("unreachable");
             });
 
-        var (service, coordinator) = await CreateStartedServiceAsync(provider, model);
+        var service = CreateService(coordinator);
         using var cts = new CancellationTokenSource();
 
-        try
-        {
-            var generateTask = service.Generate(
-                new GenerateRequest
-                {
-                    RequestId = "cancelled",
-                    Prompt = "world"
-                },
-                TestServerCallContext.Create(cts.Token));
+        var generateTask = service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "cancelled",
+                Prompt = "world"
+            },
+            TestServerCallContext.Create(cts.Token));
 
-            await started.Task;
-            await cts.CancelAsync();
+        await started.Task;
+        await cts.CancelAsync();
 
-            var ex = await Assert.ThrowsAsync<RpcException>(() => generateTask);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => generateTask);
 
-            Assert.Equal(StatusCode.Cancelled, ex.StatusCode);
-            Assert.Equal(RuntimeErrorMetadata.CancelledCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal(StatusCode.Cancelled, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.CancelledCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
     }
 
     [Fact]
     public async Task Generate_ReturnsUsageFromAtomicInference()
     {
-        var (service, coordinator) = await CreateStartedServiceAsync();
+        var service = CreateService();
 
-        try
-        {
-            var reply = await service.Generate(
-                new GenerateRequest
-                {
-                    RequestId = "usage",
-                    Prompt = "world"
-                },
-                TestServerCallContext.Create());
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "usage",
+                Prompt = "world"
+            },
+            TestServerCallContext.Create());
 
-            Assert.Equal("mocked response", reply.Content);
-            Assert.Equal(5, reply.Usage.InputTokens);
-            Assert.Equal("mocked response".Length, reply.Usage.OutputTokens);
-            Assert.Equal(5 + "mocked response".Length, reply.Usage.TotalTokens);
-        }
-        finally
-        {
-            await coordinator.StopAsync(CancellationToken.None);
-        }
+        Assert.Equal("mocked response", reply.Content);
+        Assert.Equal(5, reply.Usage.InputTokens);
+        Assert.Equal("mocked response".Length, reply.Usage.OutputTokens);
+        Assert.Equal(5 + "mocked response".Length, reply.Usage.TotalTokens);
     }
 
-    private static async Task<(GeneratorService Service, QueuedInferenceCoordinator Coordinator)> CreateStartedServiceAsync(
-        Mock<ILlamaProvider>? provider = null,
-        IEngineModel? model = null)
+    [Fact]
+    public async Task Generate_FallsBackToSanitizedSourceName_WhenConfiguredModelIdMissing()
     {
-        var coordinator = CreateCoordinator(provider, model, out var store);
-        await coordinator.StartAsync(CancellationToken.None);
-        return (CreateService(store, coordinator), coordinator);
+        var hostedModel = CreateHostedModel();
+        hostedModel.SetLoaded(CreateModel("/tmp/models/fallback.gguf"));
+        var service = CreateService(hostedModel: hostedModel);
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "fallback-id",
+                Prompt = "world"
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("fallback", reply.Model);
     }
 
     private static GeneratorService CreateService(
-        HostedModelStore? store = null,
-        QueuedInferenceCoordinator? coordinator = null,
-        bool loadModel = true,
-        HostedModelOptions? hostedModelOptions = null)
+        Mock<IInferenceCoordinator>? coordinator = null,
+        HostedModel? hostedModel = null,
+        bool loadModel = true)
     {
-        store ??= new HostedModelStore();
-        if (loadModel && !store.TryGetLoadedModel(out _))
+        hostedModel ??= CreateHostedModel();
+        if (loadModel && !hostedModel.TryGetLoadedModel(out _))
         {
-            store.SetLoaded(Mock.Of<IEngineModel>(m => m.Id == "model"));
+            hostedModel.SetLoaded(CreateModel(), "test-model");
         }
 
-        if (coordinator is null)
-        {
-            coordinator = CreateCoordinator(null, loadModel ? store.GetSnapshot().Model : null, out var coordinatorStore, loadModel);
-            store = coordinatorStore;
-        }
+        coordinator ??= CreateCoordinator();
 
         return new GeneratorService(
             NullLogger<GeneratorService>.Instance,
-            store,
-            coordinator,
-            Options.Create(new LlamaNativeOptions
-            {
-                NativeLibraryPath = "test-native",
-                ContextSize = 32,
-                GenerationMaxNewTokens = 8
-            }),
-            Options.Create(hostedModelOptions ?? new HostedModelOptions
-            {
-                ModelPath = "test-model.gguf",
-                ModelId = "test-model"
-            }));
+            coordinator.Object,
+            TestModelFactory.CreateNativeOptions(),
+            hostedModel);
     }
 
-    private static QueuedInferenceCoordinator CreateCoordinator(
-        Mock<ILlamaProvider>? provider,
-        IEngineModel? model,
-        out HostedModelStore store,
-        bool loadModel = true)
+    private static Mock<IInferenceCoordinator> CreateCoordinator()
     {
-        var useDefaultProviderBehavior = provider is null;
-        provider ??= new Mock<ILlamaProvider>();
-        store = new HostedModelStore();
-        model ??= Mock.Of<IEngineModel>(m => m.Id == "model");
-        if (loadModel)
-        {
-            store.SetLoaded(model);
-        }
-
-        if (useDefaultProviderBehavior)
-        {
-            provider.Setup(p => p.InferAsync(model, "world", It.IsAny<CancellationToken>()))
-                .ReturnsAsync(CreateInferenceResult("mocked response"));
-            provider.Setup(p => p.CountTokensAsync(model, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((IEngineModel _, string prompt, CancellationToken _) => prompt.Length);
-        }
-
-        return new QueuedInferenceCoordinator(
-            provider.Object,
-            store,
-            Options.Create(new InferenceOptions
-            {
-                ChannelCapacity = 1,
-                WorkerCount = 1,
-                AcquireTimeout = TimeSpan.FromSeconds(1)
-            }),
-            NullLogger<QueuedInferenceCoordinator>.Instance);
+        var coordinator = new Mock<IInferenceCoordinator>();
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+            .ReturnsAsync(CreateInferenceResult("mocked response"));
+        coordinator.Setup(c => c.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+            .ReturnsAsync((string prompt, CancellationToken _, string? _) => prompt.Length);
+        return coordinator;
     }
 
     private static string? GetTrailerValue(RpcException exception, string key) =>
         exception.Trailers.SingleOrDefault(entry => entry.Key == key)?.Value;
+
+    private static HostedModel CreateHostedModel() =>
+        new(TestModelFactory.CreateNativeOptions());
+
+    private static IEngineModel CreateModel(
+        string sourcePath = "model.gguf",
+        int contextSize = 32) =>
+        TestModelFactory.CreateEngineModel(sourcePath, contextSize);
 
     private static InferenceResult CreateInferenceResult(string content) =>
         new(

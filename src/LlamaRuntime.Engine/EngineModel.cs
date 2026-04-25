@@ -5,15 +5,17 @@ namespace LlamaRuntime.Engine;
 
 public sealed class EngineModel : IEngineModel
 {
-    public string Id { get; }
+    public string SourcePath { get; }
+    public ModelMetadata? Metadata { get; }
     internal LlamaModelHandle NativeModelHandle { get; }
 
     private bool _disposed;
 
-    public EngineModel(string id, LlamaModelHandle nativeModelHandle)
+    public EngineModel(string sourcePath, LlamaModelHandle nativeModelHandle, ModelMetadata? metadata = null)
     {
-        Id = id ?? throw new ArgumentNullException(nameof(id));
+        SourcePath = sourcePath ?? throw new ArgumentNullException(nameof(sourcePath));
         NativeModelHandle = nativeModelHandle ?? throw new ArgumentNullException(nameof(nativeModelHandle));
+        Metadata = metadata;
     }
 
     public void Dispose()

@@ -5,13 +5,13 @@ namespace LlamaRuntime.Presentation.Grpc.HealthChecks;
 
 public class ModelReadyHealthCheck : IHealthCheck
 {
-    private readonly IHostedModelStateReader _hostedModelReader;
+    private readonly IHostedModel _hostedModel;
 
-    public ModelReadyHealthCheck(IHostedModelStateReader hostedModelReader) => _hostedModelReader = hostedModelReader;
+    public ModelReadyHealthCheck(IHostedModel hostedModel) => _hostedModel = hostedModel;
 
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        var snapshot = _hostedModelReader.GetSnapshot();
+        var snapshot = _hostedModel.GetSnapshot();
         var result = snapshot.State switch
         {
             HostedModelState.Loaded => HealthCheckResult.Healthy("Model loaded and ready."),

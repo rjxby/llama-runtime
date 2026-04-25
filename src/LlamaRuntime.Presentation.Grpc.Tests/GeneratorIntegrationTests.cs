@@ -1,9 +1,15 @@
 using Microsoft.AspNetCore.Mvc.Testing;
 using Grpc.Net.Client;
 using Grpc.Core;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Common.Tests;
+using LlamaRuntime.Native.Contracts;
 using LlamaRuntime.Presentation.Grpc.Services;
+using Moq;
 
 namespace LlamaRuntime.Presentation.Grpc.Tests;
 
@@ -93,7 +99,56 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
         Assert.False(reply.SupportsStructuredOutput);
         Assert.False(reply.SupportsJsonObjectOutput);
         Assert.False(reply.SupportsSpeculativeDecoding);
-        Assert.Equal("llama_cpp", reply.TokenizerFamily);
+        Assert.Equal("sentencepiece", reply.TokenizerFamily);
+
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task GetCapabilities_ReflectsHostedModelAndRuntimeConfigurationChanges()
+    {
+        using var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, cfg) =>
+            {
+                cfg.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["HostedModel:ModelId"] = "alternate-model",
+                    ["Llama:Native:ContextSize"] = "64"
+                });
+            });
+            builder.ConfigureServices(services =>
+            {
+                var nativeMock = new Mock<ILlamaNative>();
+                nativeMock.Setup(x => x.LoadModel(It.IsAny<string>()))
+                    .Returns(LlamaModelHandle.FromIntPtr(new IntPtr(2)));
+                nativeMock.Setup(x => x.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+                    .Returns(new NativeModelMetadata(128, NativeTokenizerType.Bpe));
+                nativeMock.Setup(x => x.CreateContext(It.IsAny<LlamaModelHandle>()))
+                    .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+                nativeMock.Setup(x => x.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+                    .Returns(new NativeContextMetadata(64));
+                nativeMock.Setup(x => x.CountTokens(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()))
+                    .Returns<LlamaContextHandle, string>((_, prompt) => prompt.Length);
+                nativeMock.Setup(x => x.Infer(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()))
+                    .Returns<LlamaContextHandle, string>((_, prompt) =>
+                        new NativeInferenceResult(
+                            "alternate response",
+                            prompt.Length,
+                            "alternate response".Length,
+                            prompt.Length + "alternate response".Length));
+
+                services.RemoveAll<ILlamaNative>();
+                services.AddSingleton(nativeMock.Object);
+            });
+        });
+
+        var client = CreateClient(factory, out var channel);
+        var reply = await client.GetCapabilitiesAsync(new GetCapabilitiesRequest()).ResponseAsync;
+
+        Assert.Equal("alternate-model", reply.ModelId);
+        Assert.Equal(64, reply.ContextSize);
+        Assert.Equal("bpe", reply.TokenizerFamily);
 
         channel.Dispose();
     }
@@ -142,13 +197,19 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
 
     private Generator.GeneratorClient CreateClient(out GrpcChannel channel)
     {
-        channel = CreateChannel();
+        channel = CreateChannel(_factory);
         return new Generator.GeneratorClient(channel);
     }
 
-    private GrpcChannel CreateChannel()
+    private static Generator.GeneratorClient CreateClient(WebApplicationFactory<Program> factory, out GrpcChannel channel)
     {
-        var httpClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        channel = CreateChannel(factory);
+        return new Generator.GeneratorClient(channel);
+    }
+
+    private static GrpcChannel CreateChannel(WebApplicationFactory<Program> factory)
+    {
+        var httpClient = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("http://localhost")
         });

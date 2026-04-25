@@ -33,20 +33,67 @@ public sealed class LlamaProvider : ILlamaProvider
         if (string.IsNullOrEmpty(path)) throw new ArgumentException("Path is null or empty", nameof(path));
         cancellationToken.ThrowIfCancellationRequested();
 
-        LlamaModelHandle modelHandle;
+        LlamaModelHandle? modelHandle = null;
+        LlamaContextHandle? probeContextHandle = null;
         try
         {
             modelHandle = _native.LoadModel(path);
+
+            var nativeMetadata = _native.GetModelMetadata(modelHandle);
+            var probeContext = CreateProbeContext(modelHandle, path);
+            probeContextHandle = probeContext.ContextHandle;
+            var contextMetadata = probeContext.Metadata;
+            ValidateRequestedContext(path, contextMetadata.ContextSize);
+            var metadata = CreateModelMetadata(nativeMetadata, contextMetadata);
+
+            var model = new EngineModel(path, modelHandle, metadata);
+            _contextManager.PrimeModelContext(model, probeContextHandle);
+            probeContextHandle = null;
+            modelHandle = null;
+            _logger.LogInformation(
+                "Model loaded (path={Path}, configured_context_size={ConfiguredContextSize}, actual_context_size={ActualContextSize}, training_context_size={TrainingContextSize}, tokenizer_type={TokenizerType})",
+                path,
+                _nativeOptions.ContextSize,
+                metadata.ContextSize,
+                metadata.TrainingContextSize ?? 0,
+                metadata.TokenizerType);
+
+            return Task.FromResult<IEngineModel>(model);
         }
         catch (Exception ex)
         {
+            if (probeContextHandle != null)
+            {
+                try
+                {
+                    _native.RemoveContext(probeContextHandle);
+                }
+                catch (Exception removeEx)
+                {
+                    _logger.LogWarning(removeEx, "Failed releasing probe context while loading {Path}", path);
+                }
+            }
+
+            if (modelHandle != null)
+            {
+                try
+                {
+                    _native.UnloadModel(modelHandle);
+                }
+                catch (Exception unloadEx)
+                {
+                    _logger.LogWarning(unloadEx, "Failed unloading model after load failure from {Path}", path);
+                }
+            }
+
             _logger.LogError(ex, "Failed to load model from {Path}", path);
+            if (ex is ModelLoadException)
+            {
+                throw;
+            }
+
             throw new ModelLoadException($"Failed to load model from {path}", ex);
         }
-
-        var model = new EngineModel(path, modelHandle);
-        _logger.LogInformation("Model loaded (path={Path})", path);
-        return Task.FromResult<IEngineModel>(model);
     }
 
     public Task UnloadModelAsync(IEngineModel model, CancellationToken cancellationToken = default)
@@ -58,7 +105,7 @@ public sealed class LlamaProvider : ILlamaProvider
         _contextManager.ReleaseModelResources(model);
 
         try { model.Dispose(); }
-        catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing model {Model}", model.Id); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing model {Path}", model.SourcePath); }
         return Task.CompletedTask;
     }
 
@@ -81,7 +128,7 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            return await InferContentAsync(session, prompt, cancellationToken).ConfigureAwait(false);
+            return await InferContentAsync(model, session, prompt, cancellationToken).ConfigureAwait(false);
         }
         catch (NativeException ex)
         {
@@ -90,6 +137,7 @@ public sealed class LlamaProvider : ILlamaProvider
     }
 
     private async Task<InferenceResult> InferContentAsync(
+        IEngineModel model,
         IInferenceSession session,
         string prompt,
         CancellationToken cancellationToken)
@@ -114,9 +162,10 @@ public sealed class LlamaProvider : ILlamaProvider
             if (ex is NativeInvalidArgumentException)
             {
                 var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-                var maxInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
+                var effectiveContextSize = GetEffectiveContextSize(model);
+                var maxInputTokens = Math.Max(1, effectiveContextSize - reservedOutputTokens);
                 throw new PromptBudgetExceededException(
-                    $"Prompt exceeds input budget: native tokenizer reported more than {maxInputTokens} allowed tokens (context {_nativeOptions.ContextSize}, reserved output {reservedOutputTokens}).");
+                    $"Prompt exceeds input budget: native tokenizer reported more than {maxInputTokens} allowed tokens (context {effectiveContextSize}, reserved output {reservedOutputTokens}).");
             }
 
             throw new InferenceException(CreateInferenceMessage(ex), ex);
@@ -143,5 +192,48 @@ public sealed class LlamaProvider : ILlamaProvider
             NativeBufferTooSmallException => "Inference output exceeded the configured native buffer size.",
             _ => "Inference failed."
         };
+    }
+
+    private (LlamaContextHandle ContextHandle, NativeContextMetadata Metadata) CreateProbeContext(
+        LlamaModelHandle modelHandle,
+        string path)
+    {
+        try
+        {
+            var contextHandle = _native.CreateContext(modelHandle);
+            var metadata = _native.GetContextMetadata(contextHandle);
+            return (contextHandle, metadata);
+        }
+        catch (Exception ex) when (ex is not ModelLoadException)
+        {
+            throw new ModelLoadException($"Failed to determine actual runtime context size for {path}.", ex);
+        }
+    }
+
+    private void ValidateRequestedContext(string path, int actualContextSize)
+    {
+        if (actualContextSize <= 0)
+        {
+            throw new ModelLoadException($"Loaded model from {path} did not report a valid runtime context size.");
+        }
+
+        if (actualContextSize != _nativeOptions.ContextSize)
+        {
+            throw new ModelLoadException(
+                $"Configured context size {_nativeOptions.ContextSize} does not match actual created context size {actualContextSize} for {path}.");
+        }
+    }
+
+    private int GetEffectiveContextSize(IEngineModel model) =>
+        model.Metadata?.ContextSize > 0 ? model.Metadata.ContextSize : _nativeOptions.ContextSize;
+
+    private static ModelMetadata CreateModelMetadata(
+        NativeModelMetadata nativeMetadata,
+        NativeContextMetadata contextMetadata)
+    {
+        return new ModelMetadata(
+            contextMetadata.ContextSize,
+            nativeMetadata.TokenizerType,
+            nativeMetadata.TrainingContextSize > 0 ? nativeMetadata.TrainingContextSize : null);
     }
 }

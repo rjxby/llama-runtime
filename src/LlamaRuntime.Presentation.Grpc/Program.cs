@@ -4,8 +4,7 @@ using LlamaRuntime.Presentation.Grpc.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddLlamaCore();
-builder.Services.AddHostedModel();
+builder.Services.AddHostedRuntime();
 builder.Services.AddApiKeyAuth();
 builder.Services.AddAppRateLimiting(builder.Configuration);
 builder.Services.AddLlamaHealthChecks();
@@ -23,14 +22,6 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapGrpcService<GeneratorService>();
-
-app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-{
-    Predicate = _ => false
-});
-app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-{
-    Predicate = hc => hc.Name == "model_ready"
-});
+app.MapLlamaHealthChecks();
 
 app.Run();

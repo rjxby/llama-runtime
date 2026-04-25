@@ -4,8 +4,7 @@ using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
 using LlamaRuntime.Native.Contracts.Configuration;
-using LlamaRuntime.Presentation.Grpc.Configuration;
-using LlamaRuntime.Presentation.Grpc.HostedServices;
+using LlamaRuntime.Presentation.Grpc.Inference;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 namespace LlamaRuntime.Presentation.Grpc.Services;
@@ -17,26 +16,22 @@ public sealed class GeneratorService : Generator.GeneratorBase
     private const string JsonObjectResponseFormat = "json_object";
     private const float DefaultTemperature = 0.0f;
     private const float DefaultTopP = 1.0f;
-    private const string TokenizerFamily = "llama_cpp";
 
     private readonly ILogger<GeneratorService> _logger;
-    private readonly IHostedModelStateReader _hostedModelReader;
-    private readonly QueuedInferenceCoordinator _inferenceCoordinator;
+    private readonly IInferenceCoordinator _inferenceCoordinator;
     private readonly LlamaNativeOptions _nativeOptions;
-    private readonly HostedModelOptions _hostedModelOptions;
+    private readonly IHostedRuntimeInfo _hostedRuntimeInfo;
 
     public GeneratorService(
         ILogger<GeneratorService> logger,
-        IHostedModelStateReader hostedModelReader,
-        QueuedInferenceCoordinator inferenceCoordinator,
+        IInferenceCoordinator inferenceCoordinator,
         IOptions<LlamaNativeOptions> nativeOptions,
-        IOptions<HostedModelOptions> hostedModelOptions)
+        IHostedRuntimeInfo hostedRuntimeInfo)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _hostedModelReader = hostedModelReader ?? throw new ArgumentNullException(nameof(hostedModelReader));
         _inferenceCoordinator = inferenceCoordinator ?? throw new ArgumentNullException(nameof(inferenceCoordinator));
         _nativeOptions = nativeOptions?.Value ?? throw new ArgumentNullException(nameof(nativeOptions));
-        _hostedModelOptions = hostedModelOptions?.Value ?? throw new ArgumentNullException(nameof(hostedModelOptions));
+        _hostedRuntimeInfo = hostedRuntimeInfo ?? throw new ArgumentNullException(nameof(hostedRuntimeInfo));
     }
 
     public override async Task<GenerateReply> Generate(GenerateRequest request, ServerCallContext context)
@@ -45,15 +40,15 @@ public sealed class GeneratorService : Generator.GeneratorBase
 
         try
         {
-            ValidateGenerateRequest(request);
-            EnsureModelLoaded();
+            var runtime = EnsureRuntimeLoaded();
+            ValidateGenerateRequest(request, runtime);
 
             var inference = await _inferenceCoordinator.InferAsync(request.Prompt, context.CancellationToken, request.RequestId).ConfigureAwait(false);
 
             return new GenerateReply
             {
                 RequestId = request.RequestId,
-                Model = ResolveModelId(),
+                Model = runtime.PublicModelId,
                 Content = inference.Content,
                 Usage = new Usage
                 {
@@ -92,16 +87,17 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, "Prompt is required.", StatusCode.InvalidArgument);
             }
 
-            EnsureModelLoaded();
+            var runtime = EnsureRuntimeLoaded();
 
             var tokenCount = await _inferenceCoordinator.CountTokensAsync(request.Prompt, context.CancellationToken).ConfigureAwait(false);
             var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-            var maxAllowedInputTokens = Math.Max(1, _nativeOptions.ContextSize - reservedOutputTokens);
+            var contextSize = runtime.EffectiveContextSize;
+            var maxAllowedInputTokens = Math.Max(1, contextSize - reservedOutputTokens);
 
             return new EstimateTokensReply
             {
                 TokenCount = tokenCount,
-                ContextSize = _nativeOptions.ContextSize,
+                ContextSize = contextSize,
                 ReservedOutputTokens = reservedOutputTokens,
                 MaxAllowedInputTokens = maxAllowedInputTokens,
                 Fits = tokenCount <= maxAllowedInputTokens
@@ -125,16 +121,16 @@ public sealed class GeneratorService : Generator.GeneratorBase
     {
         try
         {
-            EnsureModelLoaded();
+            var capabilities = EnsureRuntimeLoaded();
 
             return Task.FromResult(new GetCapabilitiesReply
             {
-                ModelId = ResolveModelId(),
-                ContextSize = _nativeOptions.ContextSize,
-                SupportsStructuredOutput = false,
-                SupportsJsonObjectOutput = false,
-                SupportsSpeculativeDecoding = false,
-                TokenizerFamily = TokenizerFamily
+                ModelId = capabilities.PublicModelId,
+                ContextSize = capabilities.EffectiveContextSize,
+                SupportsStructuredOutput = capabilities.StructuredOutput.IsSupported,
+                SupportsJsonObjectOutput = capabilities.JsonObjectOutput.IsSupported,
+                SupportsSpeculativeDecoding = capabilities.SpeculativeDecoding.IsSupported,
+                TokenizerFamily = capabilities.TokenizerFamily
             });
         }
         catch (RpcException)
@@ -147,7 +143,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         }
     }
 
-    private void ValidateGenerateRequest(GenerateRequest request)
+    private void ValidateGenerateRequest(GenerateRequest request, HostedRuntimeInfo runtimeInfo)
     {
         if (string.IsNullOrWhiteSpace(request.RequestId))
         {
@@ -162,7 +158,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         var responseFormat = request.ResponseFormat?.Type?.Trim();
         if (string.IsNullOrEmpty(responseFormat) || string.Equals(responseFormat, TextResponseFormat, StringComparison.Ordinal))
         {
-            ValidateGenerationOptions(request.Generation);
+            ValidateGenerationOptions(request.Generation, runtimeInfo);
             return;
         }
 
@@ -180,7 +176,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
             StatusCode.InvalidArgument);
     }
 
-    private void ValidateGenerationOptions(GenerationOptions? generationOptions)
+    private void ValidateGenerationOptions(GenerationOptions? generationOptions, HostedRuntimeInfo runtimeInfo)
     {
         if (generationOptions is null)
         {
@@ -211,11 +207,13 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
-        if (generationOptions.HasMaxOutputTokens && generationOptions.MaxOutputTokens >= _nativeOptions.ContextSize)
+        var effectiveContextSize = runtimeInfo.EffectiveContextSize;
+
+        if (generationOptions.HasMaxOutputTokens && generationOptions.MaxOutputTokens >= effectiveContextSize)
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                $"Generation.MaxOutputTokens must be less than configured context size {_nativeOptions.ContextSize}.",
+                $"Generation.MaxOutputTokens must be less than effective context size {effectiveContextSize}.",
                 StatusCode.InvalidArgument);
         }
 
@@ -234,29 +232,24 @@ public sealed class GeneratorService : Generator.GeneratorBase
         }
     }
 
-    private void EnsureModelLoaded()
+    private HostedRuntimeInfo EnsureRuntimeLoaded()
     {
-        if (_hostedModelReader.TryGetLoadedModel(out _))
+        var runtimeInfo = _hostedRuntimeInfo.GetRuntimeInfo();
+        if (runtimeInfo.State == HostedModelState.Loaded)
         {
-            return;
+            return runtimeInfo;
         }
 
-        var snapshot = _hostedModelReader.GetSnapshot();
-        var message = snapshot.State switch
+        var message = runtimeInfo.State switch
         {
             HostedModelState.Loading => "Model is still loading.",
             HostedModelState.WarmingUp => "Model is warming up.",
-            HostedModelState.Failed => snapshot.FailureMessage ?? "Model failed to load.",
+            HostedModelState.Failed => runtimeInfo.FailureMessage ?? "Model failed to load.",
             HostedModelState.Stopping => "Model is stopping.",
             _ => "Model not loaded."
         };
 
         throw CreateRpcException(RuntimeErrorMetadata.ModelUnavailableCode, message, StatusCode.Unavailable);
-    }
-
-    private string ResolveModelId()
-    {
-        return _hostedModelOptions.ModelId;
     }
 
     private static RpcException MapExceptionToRpcException(Exception exception) =>

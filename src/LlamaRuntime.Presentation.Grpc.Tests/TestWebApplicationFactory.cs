@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 public class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
@@ -29,8 +30,14 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             // Add basic setup to avoid null refs
             nativeMock.Setup(x => x.LoadModel(Moq.It.IsAny<string>()))
                 .Returns(LlamaRuntime.Native.Contracts.LlamaModelHandle.FromIntPtr(new IntPtr(1)));
+            nativeMock.Setup(x => x.GetModelMetadata(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaModelHandle>()))
+                .Returns(new LlamaRuntime.Native.Contracts.NativeModelMetadata(
+                    32,
+                    LlamaRuntime.Native.Contracts.NativeTokenizerType.SentencePiece));
             nativeMock.Setup(x => x.CreateContext(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaModelHandle>()))
                 .Returns(LlamaRuntime.Native.Contracts.LlamaContextHandle.FromIntPtr(new IntPtr(1)));
+            nativeMock.Setup(x => x.GetContextMetadata(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>()))
+                .Returns(new LlamaRuntime.Native.Contracts.NativeContextMetadata(32));
             nativeMock.Setup(x => x.CountTokens(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
                 .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) => prompt.Length);
             nativeMock.Setup(x => x.Infer(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
@@ -48,6 +55,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                         prompt.Length + "mocked response".Length);
                 });
 
+            services.RemoveAll<LlamaRuntime.Native.Contracts.ILlamaNative>();
             services.AddSingleton(nativeMock.Object);
         });
     }
