@@ -2,11 +2,6 @@ using System.Text.Json;
 
 namespace LlamaRuntime.Benchmarks.Common;
 
-public sealed record LlamaRestResponseParseResult(
-    bool Parsed,
-    string? GeneratedText,
-    string? FailureReason);
-
 public static class LlamaRestResponseParser
 {
     public static LlamaRestResponseParseResult Parse(string json)

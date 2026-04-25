@@ -13,7 +13,7 @@ namespace LlamaRuntime.Engine.Tests;
 public sealed class LlamaProviderTests
 {
     private static LlamaModelHandle CreateModelHandle() =>
-        LlamaModelHandle.FromIntPtr(new IntPtr(1));
+        TestModelFactory.CreateModelHandle();
 
     private static LlamaProvider CreateProvider(
         Mock<ILlamaNative> nativeMock,
@@ -33,6 +33,14 @@ public sealed class LlamaProviderTests
             NullLogger<LlamaProvider>.Instance);
     }
 
+    private static NativeModelMetadata CreateMetadata(
+        int trainingContextSize = 4096,
+        NativeTokenizerType tokenizerType = NativeTokenizerType.SentencePiece) =>
+        new(trainingContextSize, tokenizerType);
+
+    private static NativeContextMetadata CreateContextMetadata(int contextSize = 4096) =>
+        new(contextSize);
+
     [Fact]
     public async Task LoadModelAsync_Returns_Model()
     {
@@ -40,14 +48,24 @@ public sealed class LlamaProviderTests
         var contextManager = new Mock<ILlamaContextManager>();
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         using var provider = CreateProvider(native, contextManager);
 
         var model = await provider.LoadModelAsync("model.gguf");
 
         Assert.NotNull(model);
-        Assert.Equal("model.gguf", model.Id);
+        Assert.Equal("model.gguf", model.SourcePath);
+        Assert.Equal(4096, model.Metadata?.ContextSize);
+        Assert.Equal(4096, model.Metadata?.TrainingContextSize);
+        Assert.Equal(NativeTokenizerType.SentencePiece, model.Metadata?.TokenizerType);
         native.Verify(n => n.LoadModel("model.gguf"), Times.Once);
+        contextManager.Verify(m => m.PrimeModelContext(model, It.IsAny<LlamaContextHandle>()), Times.Once);
     }
 
     [Fact]
@@ -64,6 +82,80 @@ public sealed class LlamaProviderTests
             provider.LoadModelAsync("model.gguf"));
     }
 
+    [Theory]
+    [InlineData(NativeTokenizerType.SentencePiece)]
+    [InlineData(NativeTokenizerType.Bpe)]
+    [InlineData(NativeTokenizerType.WordPiece)]
+    [InlineData(NativeTokenizerType.Unigram)]
+    [InlineData(NativeTokenizerType.Rwkv)]
+    [InlineData(NativeTokenizerType.Plamo2)]
+    [InlineData(NativeTokenizerType.None)]
+    [InlineData(NativeTokenizerType.Unknown)]
+    public async Task LoadModelAsync_PreservesTypedTokenizerMetadata(
+        NativeTokenizerType tokenizerType)
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata(tokenizerType: tokenizerType));
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
+
+        using var provider = CreateProvider(native, contextManager);
+
+        var model = await provider.LoadModelAsync("model.gguf");
+
+        Assert.Equal(tokenizerType, model.Metadata?.TokenizerType);
+    }
+
+    [Fact]
+    public async Task LoadModelAsync_ContextMismatch_ThrowsModelLoadException()
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata(trainingContextSize: 16));
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata(contextSize: 16));
+
+        using var provider = CreateProvider(native, contextManager, contextSize: 32);
+
+        var ex = await Assert.ThrowsAsync<ModelLoadException>(() =>
+            provider.LoadModelAsync("model.gguf"));
+
+        Assert.Contains("Configured context size 32 does not match actual created context size 16", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoadModelAsync_LowerTrainingContextButMatchingActualContext_Succeeds()
+    {
+        var native = new Mock<ILlamaNative>();
+        var contextManager = new Mock<ILlamaContextManager>();
+        native.Setup(n => n.LoadModel(It.IsAny<string>()))
+              .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata(trainingContextSize: 16));
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata(contextSize: 32));
+
+        using var provider = CreateProvider(native, contextManager, contextSize: 32);
+
+        var model = await provider.LoadModelAsync("model.gguf");
+
+        Assert.Equal(32, model.Metadata?.ContextSize);
+        Assert.Equal(16, model.Metadata?.TrainingContextSize);
+    }
+
     [Fact]
     public async Task InferAsync_Uses_Sessions()
     {
@@ -75,6 +167,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(modelHandle);
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -109,6 +207,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -136,6 +240,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(modelHandle);
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         using var provider = CreateProvider(native, contextManager);
         var model = await provider.LoadModelAsync("model");
@@ -154,6 +264,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -183,6 +299,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata(trainingContextSize: 8));
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata(contextSize: 8));
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -210,6 +332,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -237,6 +365,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))
@@ -265,6 +399,12 @@ public sealed class LlamaProviderTests
 
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
               .Returns(CreateModelHandle());
+        native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
+              .Returns(CreateMetadata());
+        native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
+              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+        native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
+              .Returns(CreateContextMetadata());
 
         contextManager
             .Setup(m => m.CreateSessionAsync(It.IsAny<IEngineModel>(), It.IsAny<CancellationToken>()))

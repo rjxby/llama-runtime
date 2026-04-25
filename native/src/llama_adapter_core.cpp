@@ -27,6 +27,17 @@ Error Model::load(const char *path) {
   }
 }
 
+Error Model::metadata(llama_adapter_model_metadata_t *metadata) const {
+  if (!model_ || !metadata)
+    return Error::INVALID_ARG;
+
+  metadata->training_context_size = llama_model_n_ctx_train(model_);
+  const llama_vocab * model_vocab = vocab();
+  metadata->tokenizer_type =
+      model_vocab ? static_cast<int32_t>(llama_vocab_type(model_vocab)) : 0;
+  return Error::OK;
+}
+
 void Model::free() {
   if (model_) {
     llama_model_free(model_);
@@ -51,7 +62,7 @@ Error Context::init(int n_ctx, int n_batch, int generation_max_new_tokens) {
       return Error::LOAD_MODEL;
     }
 
-    ctx_n_ctx_ = (p.n_ctx > 0) ? static_cast<int>(p.n_ctx) : 2048;
+    ctx_n_ctx_ = static_cast<int>(llama_n_ctx(ctx_));
     ctx_n_batch_ = (p.n_batch > 0) ? static_cast<int>(p.n_batch) : 512;
     generation_max_new_tokens_ =
         (generation_max_new_tokens > 0) ? generation_max_new_tokens : 128;
@@ -62,6 +73,14 @@ Error Context::init(int n_ctx, int n_batch, int generation_max_new_tokens) {
   } catch (...) {
     return Error::UNKNOWN;
   }
+}
+
+Error Context::metadata(llama_adapter_context_metadata_t *metadata) const {
+  if (!ctx_ || !metadata)
+    return Error::INVALID_ARG;
+
+  metadata->context_size = static_cast<int32_t>(llama_n_ctx(ctx_));
+  return Error::OK;
 }
 
 void Context::free() {

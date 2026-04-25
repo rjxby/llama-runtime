@@ -64,6 +64,20 @@ internal sealed class ContextPool : IDisposable
         }
     }
 
+    public void Prime(LlamaContextHandle ctx)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(ctx);
+
+        if (ctx.IsInvalid)
+        {
+            try { ctx.Dispose(); } catch { }
+            return;
+        }
+
+        _queue.Enqueue(ctx);
+    }
+
     public void Release(LlamaContextHandle ctx)
     {
         if (ctx == null) return;

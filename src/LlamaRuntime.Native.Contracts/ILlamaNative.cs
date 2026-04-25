@@ -10,6 +10,8 @@ public interface ILlamaNative : IDisposable
     string GetVersion();
 
     LlamaModelHandle LoadModel(string path);
+    NativeModelMetadata GetModelMetadata(LlamaModelHandle model);
+    NativeContextMetadata GetContextMetadata(LlamaContextHandle context);
     void UnloadModel(LlamaModelHandle model);
 
     LlamaContextHandle CreateContext(LlamaModelHandle model);

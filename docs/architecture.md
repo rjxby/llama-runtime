@@ -27,7 +27,10 @@
 - Only one model is hosted at a time.
 - gRPC is the only serving interface.
 - Readiness is healthy only when the model is fully loaded and startup warm-up has completed.
-- Prompt budget is enforced before generation using `ContextSize - GenerationMaxNewTokens`.
+- Prompt budget is enforced before generation using the effective runtime context size minus `GenerationMaxNewTokens`.
+- The runtime discovers model metadata, including tokenizer family and training-context metadata, from the loaded model during startup.
+- The effective runtime context size comes from the actual created `llama_context` returned by `llama.cpp`, and startup fails if that value does not match the configured runtime context size.
+- `GetCapabilities` reports the effective runtime context and the loaded model/runtime pair’s effective features; callers should query it before budgeting requests.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
 - `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current greedy-decoding implementation.
 

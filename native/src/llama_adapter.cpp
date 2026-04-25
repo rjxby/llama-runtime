@@ -70,6 +70,18 @@ int llama_load_model(const char *path, void **model_out) noexcept {
   }
 }
 
+int llama_model_get_metadata(void *model,
+                             llama_adapter_model_metadata_t *metadata_out) noexcept {
+  if (!model || !metadata_out)
+    return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  try {
+    return to_public_error(
+        static_cast<llama_adapter::Model *>(model)->metadata(metadata_out));
+  } catch (...) {
+    return LLAMA_ADAPTER_ERR_UNKNOWN;
+  }
+}
+
 int llama_unload_model(void *model) noexcept {
   if (!model)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
@@ -92,6 +104,18 @@ int llama_create_context(void *model, int n_ctx, int n_batch,
     }
     *ctx_out = ctx;
     return LLAMA_ADAPTER_OK;
+  } catch (...) {
+    return LLAMA_ADAPTER_ERR_UNKNOWN;
+  }
+}
+
+int llama_context_get_metadata(void *ctx,
+                               llama_adapter_context_metadata_t *metadata_out) noexcept {
+  if (!ctx || !metadata_out)
+    return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  try {
+    return to_public_error(
+        static_cast<llama_adapter::Context *>(ctx)->metadata(metadata_out));
   } catch (...) {
     return LLAMA_ADAPTER_ERR_UNKNOWN;
   }

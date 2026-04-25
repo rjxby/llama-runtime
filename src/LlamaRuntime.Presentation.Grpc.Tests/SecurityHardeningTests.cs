@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Hosting;
@@ -13,13 +12,14 @@ using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Auth;
 using LlamaRuntime.Presentation.Grpc.Configuration;
 using LlamaRuntime.Presentation.Grpc.HostedServices;
+using LlamaRuntime.Presentation.Grpc.Inference;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
 using LlamaRuntime.Native;
 
 namespace LlamaRuntime.Presentation.Grpc.Tests;
 
 [Trait(TestCategories.Name, TestCategories.Integration)]
-public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFactory>
+public sealed partial class SecurityHardeningTests : IClassFixture<TestWebApplicationFactory>
 {
     private readonly TestWebApplicationFactory _factory;
 
@@ -124,8 +124,8 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new Mock<LlamaRuntime.Engine.Contracts.ILlamaProvider>();
-        var store = new HostedModelStore();
-        store.SetLoaded(Mock.Of<LlamaRuntime.Engine.Contracts.IEngineModel>(m => m.Id == "model"));
+        var hostedModel = new HostedModel(TestModelFactory.CreateNativeOptions());
+        hostedModel.SetLoaded(TestModelFactory.CreateEngineModel("model.gguf"));
 
         provider.Setup(p => p.InferAsync(
                 It.IsAny<LlamaRuntime.Engine.Contracts.IEngineModel>(),
@@ -137,18 +137,22 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
                 return new LlamaRuntime.Engine.Contracts.InferenceResult("ok", 5, 2, 7);
             });
 
-        var coordinator = new QueuedInferenceCoordinator(
-            provider.Object,
-            store,
-            Options.Create(new InferenceOptions
-            {
-                ChannelCapacity = 1,
-                WorkerCount = 1,
-                AcquireTimeout = TimeSpan.FromMilliseconds(50)
-            }),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<QueuedInferenceCoordinator>.Instance);
+        var inferenceOptions = new InferenceOptions
+        {
+            ChannelCapacity = 1,
+            WorkerCount = 1,
+            AcquireTimeout = TimeSpan.FromMilliseconds(50),
+            StartupWarmupPrompt = "Hello"
+        };
+        var queue = new InferenceWorkQueue(Options.Create(inferenceOptions));
+        var coordinator = new QueuedInferenceCoordinator(provider.Object, queue);
+        var worker = new QueuedInferenceWorker(
+            queue,
+            hostedModel,
+            Options.Create(inferenceOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<QueuedInferenceWorker>.Instance);
 
-        await coordinator.StartAsync(CancellationToken.None);
+        await worker.StartAsync(CancellationToken.None);
         try
         {
             var inFlight = coordinator.InferAsync("first", CancellationToken.None);
@@ -162,7 +166,7 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
         finally
         {
             gate.TrySetResult();
-            await coordinator.StopAsync(CancellationToken.None);
+            await worker.StopAsync(CancellationToken.None);
         }
     }
 
@@ -197,64 +201,5 @@ public sealed class SecurityHardeningTests : IClassFixture<TestWebApplicationFac
     private WebApplicationFactory<Program> CreateRateLimitedFactory()
     {
         return new RateLimitedWebApplicationFactory();
-    }
-
-    private sealed class TestLogSink : ILoggerProvider
-    {
-        public ConcurrentQueue<string> Messages { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new TestLogger(Messages);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class TestLogger : ILogger
-        {
-            private readonly ConcurrentQueue<string> _messages;
-
-            public TestLogger(ConcurrentQueue<string> messages)
-            {
-                _messages = messages;
-            }
-
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                _messages.Enqueue(formatter(state, exception));
-            }
-        }
-    }
-
-    private sealed class RateLimitedWebApplicationFactory : TestWebApplicationFactory
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.ConfigureServices(services =>
-            {
-                var config = new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["RateLimiter:TokenLimit"] = "1",
-                        ["RateLimiter:TokensPerPeriod"] = "1",
-                        ["RateLimiter:ReplenishmentPeriod"] = "01:00:00",
-                        ["RateLimiter:QueueLimit"] = "0",
-                        ["RateLimiter:RejectionStatusCode"] = "429"
-                    })
-                    .Build();
-
-                services.AddAppRateLimiting(config);
-            });
-
-            base.ConfigureWebHost(builder);
-        }
     }
 }

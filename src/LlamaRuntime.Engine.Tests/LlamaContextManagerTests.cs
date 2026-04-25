@@ -14,10 +14,10 @@ namespace LlamaRuntime.Engine.Tests;
 public sealed class LlamaContextManagerTests
 {
     private static LlamaModelHandle CreateModelHandle() =>
-        LlamaModelHandle.FromIntPtr(new IntPtr(1));
+        TestModelFactory.CreateModelHandle();
 
     private static LlamaContextHandle CreateContextHandle(int id) =>
-        LlamaContextHandle.FromIntPtr(new IntPtr(id));
+        TestModelFactory.CreateContextHandle(id);
 
     private static LlamaContextManager CreateManager(
         Mock<ILlamaNative> nativeMock,
@@ -40,7 +40,7 @@ public sealed class LlamaContextManagerTests
               .Returns(ctxHandle);
 
         var manager = CreateManager(native, poolSize: 1);
-        var model = new EngineModel("test", modelHandle);
+        var model = new EngineModel("test.gguf", modelHandle, TestModelFactory.CreateModelMetadata());
 
         await using (var first = await manager.CreateSessionAsync(model))
         {
@@ -71,7 +71,7 @@ public sealed class LlamaContextManagerTests
               .Returns(() => contexts.Dequeue());
 
         var manager = CreateManager(native, poolSize: 2);
-        var model = new EngineModel("test", modelHandle);
+        var model = new EngineModel("test.gguf", modelHandle, TestModelFactory.CreateModelMetadata());
 
         var sessions = await Task.WhenAll(
             Enumerable.Range(0, 2)
@@ -93,12 +93,30 @@ public sealed class LlamaContextManagerTests
     }
 
     [Fact]
+    public async Task CreateSessionAsync_UsesPrimedContextBeforeCreatingNewOne()
+    {
+        var modelHandle = CreateModelHandle();
+        var primedContext = CreateContextHandle(7);
+        var native = new Mock<ILlamaNative>();
+        var manager = CreateManager(native, poolSize: 1);
+        var model = new EngineModel("primed.gguf", modelHandle, TestModelFactory.CreateModelMetadata());
+
+        manager.PrimeModelContext(model, primedContext);
+
+        await using var session = await manager.CreateSessionAsync(model);
+        await session.CountTokensAsync("a");
+
+        native.Verify(n => n.ResetContext(primedContext), Times.Once);
+        native.Verify(n => n.CreateContext(It.IsAny<LlamaModelHandle>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CreateSessionAsync_When_Model_Not_EngineModel_Throws()
     {
         var native = new Mock<ILlamaNative>();
         var manager = CreateManager(native);
 
-        var fakeModel = Mock.Of<IEngineModel>(m => m.Id == "x");
+        var fakeModel = Mock.Of<IEngineModel>(m => m.SourcePath == "x.gguf");
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
             manager.CreateSessionAsync(fakeModel));

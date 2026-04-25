@@ -32,6 +32,7 @@ public:
   ~Model() noexcept;
 
   Error load(const char *path);
+  Error metadata(llama_adapter_model_metadata_t *metadata) const;
   void free();
 
   llama_model *handle() const { return model_; }
@@ -47,6 +48,7 @@ public:
   ~Context() noexcept;
 
   Error init(int n_ctx, int n_batch, int generation_max_new_tokens);
+  Error metadata(llama_adapter_context_metadata_t *metadata) const;
   int generation_max_new_tokens() const { return generation_max_new_tokens_; }
   void free();
   void reset();

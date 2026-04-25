@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LlamaRuntime.Engine\LlamaRuntime.Engine.csproj" />
+    <ProjectReference Include="..\LlamaRuntime.Native\LlamaRuntime.Native.csproj" />
     <ProjectReference Include="..\LlamaRuntime.Common.Tests\LlamaRuntime.Common.Tests.csproj" />
   </ItemGroup>
 </Project>

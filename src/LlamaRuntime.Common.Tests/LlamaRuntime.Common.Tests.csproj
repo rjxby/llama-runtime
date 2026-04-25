@@ -6,4 +6,9 @@
     <IsTestProject>false</IsTestProject>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LlamaRuntime.Engine\LlamaRuntime.Engine.csproj" />
+    <ProjectReference Include="..\LlamaRuntime.Engine.Contracts\LlamaRuntime.Engine.Contracts.csproj" />
+    <ProjectReference Include="..\LlamaRuntime.Native.Contracts\LlamaRuntime.Native.Contracts.csproj" />
+  </ItemGroup>
 </Project>
