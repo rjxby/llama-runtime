@@ -35,6 +35,8 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 
 This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface. The public gRPC contract is `llama.v2`, which includes `Generate`, `EstimateTokens`, and `GetCapabilities`.
 
+The current runtime keeps request-level generation behavior narrow: it uses greedy defaults, rejects non-default `temperature` and `top_p`, and treats `max_output_tokens` as a placeholder compatibility field that is accepted only when it matches configured `Llama:Native:GenerationMaxNewTokens`.
+
 ---
 
 ## Features

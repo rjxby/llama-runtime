@@ -32,7 +32,7 @@
 - The effective runtime context size comes from the actual created `llama_context` returned by `llama.cpp`, and startup fails if that value does not match the configured runtime context size.
 - `GetCapabilities` reports the effective runtime context and the loaded model/runtime pair’s effective features; callers should query it before budgeting requests.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
-- `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current greedy-decoding implementation.
+- `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current greedy-decoding implementation. Non-default `temperature` and `top_p` are rejected, and `max_output_tokens` is accepted only when it matches configured `GenerationMaxNewTokens`.
 
 ## Compatibility
 

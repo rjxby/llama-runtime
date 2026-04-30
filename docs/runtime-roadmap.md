@@ -43,161 +43,11 @@ The current implementation is intentionally single-model per process.
 - Request routing always targets the already-loaded model instance.
 - The runtime does not currently host multiple loaded models behind one serving endpoint.
 
-Because of that, Step 1 should not introduce a request-level model selector. Doing so would imply a multi-model architecture that does not exist today and would blur the boundary between runtime execution and upstream routing.
+Because of that, the runtime should not introduce a request-level model selector. Doing so would imply a multi-model architecture that does not exist today and would blur the boundary between runtime execution and upstream routing.
 
 If future requirements demand multi-model hosting in one runtime process, that should be handled as a separate architecture change with explicit loading, eviction, isolation, and capability-discovery rules.
 
-## Step 1: Simple runtime proto
-
-### Goal
-
-Define a simpler runtime request/response contract that matches the current runtime role and architecture.
-
-### Affected areas
-
-- runtime proto
-- runtime DTOs
-- request parser
-- response builder
-- tests
-- proxy runtime adapter
-
-### Contract decisions
-
-- `GenerateRequest` accepts a prompt string, not a message array.
-- `GenerateRequest` does not include a request-level `model` field in the current single-model architecture.
-- `GenerateRequest` does not include `tools` or `tool_choice`; those belong to the proxy/orchestrator layer because tool rendering is model- and template-specific prompt policy.
-- `GenerateReply` includes the loaded model identity.
-- `GetCapabilities` becomes the authoritative source for model metadata and supported runtime features.
-- Step 1 returns generated content without requiring the runtime to understand tool schemas or tool-selection policy.
-- Any tool-call normalization or parsing beyond raw generated content is deferred to the proxy layer.
-- Usage and runtime-trace fields should be normalized when available.
-
-### Suggested proto shape
-
-```proto
-syntax = "proto3";
-
-package llama.v2;
-
-service Generator {
-  rpc Generate (GenerateRequest) returns (GenerateReply);
-  rpc EstimateTokens (EstimateTokensRequest) returns (EstimateTokensReply);
-  rpc GetCapabilities (GetCapabilitiesRequest) returns (GetCapabilitiesReply);
-}
-
-message GenerateRequest {
-  string request_id = 1;
-  string prompt = 2;
-  ResponseFormat response_format = 3;
-  GenerationOptions generation = 4;
-}
-
-message GenerateReply {
-  string request_id = 1;
-  string model = 2;
-  string content = 3;
-  Usage usage = 4;
-  RuntimeTrace runtime_trace = 5;
-}
-
-message ResponseFormat {
-  string type = 1; // text, json_object
-}
-
-message GenerationOptions {
-  float temperature = 1;
-  int32 max_output_tokens = 2;
-  float top_p = 3;
-}
-
-message Usage {
-  int32 input_tokens = 1;
-  int32 output_tokens = 2;
-  int32 total_tokens = 3;
-}
-
-message RuntimeTrace {
-  bool structured_output_applied = 1;
-  bool structured_output_satisfied = 2;
-  bool speculative_decoding_used = 3;
-}
-
-```
-
-### Implementation intent
-
-- Keep request parsing narrow: the runtime receives fully prepared prompt text from the caller.
-- Keep tool definitions, tool prompting, and tool-choice policy in the proxy, where model-specific templates and prompt composition already belong.
-- Budget input tokens against the final prompt string only; the runtime should not carry hidden tool-rendering overhead that the caller cannot see.
-- Map provider- and runtime-specific errors into normalized trailer metadata plus transport-level status.
-- Return the loaded model identifier in `GenerateReply` so logs, diagnostics, and proxy caches can correlate responses with the active model.
-- Add `GetCapabilities` in the same contract revision so clients do not infer feature support from hard-coded assumptions.
-- Leave any parsing of model-emitted tool-call text to the proxy, which already owns tool policy and model-specific prompting.
-
-### Dependencies
-
-- This step establishes the public surface that later steps extend.
-- Step 2 depends on the `GetCapabilities` method defined here.
-- Step 3 and Step 4 depend on `response_format`, normalized `usage`, and `runtime_trace`.
-
-### Verification
-
-Runtime can:
-
-- accept a prompt string
-- return normal text output
-- accept structured-output settings
-- return normalized usage and trace fields
-- avoid requiring a request model selector
-- avoid requiring separate tool metadata in the request
-
-## Step 2: Capability discovery
-
-### Goal
-
-Make runtime feature support explicit so the proxy can discover behavior from the loaded model/runtime pair instead of assuming it.
-
-### Affected areas
-
-- runtime API
-- startup
-- model registry or model metadata surface
-- diagnostics
-- proxy cache integration
-
-### Capability fields
-
-Capability discovery should report at least:
-
-- model id
-- context size
-- supports structured output
-- supports JSON object output
-- supports speculative decoding
-- tokenizer family
-
-### Implementation intent
-
-- Build capabilities from the actually loaded model instance and the runtime features enabled for that process.
-- Treat the capability payload as cacheable by the proxy, but invalidate it if the loaded model changes.
-- Keep capability values descriptive, not policy-bearing. For example, report whether runtime-level JSON object enforcement is supported, not whether a caller should use it.
-- Expose enough startup diagnostics to explain why a capability is false when the runtime is otherwise healthy.
-- Do not use capability discovery to publish tool-prompt templates or tool-selection policy; those remain proxy concerns.
-
-### Dependencies
-
-- Depends on Step 1 introducing `GetCapabilities`.
-- Should land before proxy-side feature negotiation is simplified.
-
-### Verification
-
-Proxy can:
-
-- discover capabilities automatically instead of assuming them
-- receive a capability payload that matches the actually loaded model
-
-## Step 3: Structured output
+## Step 1: Structured output
 
 ### Goal
 
@@ -227,8 +77,8 @@ Support reliable machine-readable output while keeping enforcement internals hid
 
 ### Dependencies
 
-- Depends on Step 1 response-format and trace fields.
-- Benefits from Step 2 capability discovery so callers can avoid unsupported modes.
+- Depends on the existing response-format and trace fields.
+- Benefits from the existing capability-discovery surface so callers can avoid unsupported modes.
 
 ### Verification
 
@@ -239,7 +89,7 @@ Runtime can:
 - report structured-output success or failure through normalized trace and error data
 - benchmark structured-output behavior per model and config
 
-## Step 4: Speculative decoding
+## Step 2: Speculative decoding
 
 ### Goal
 
@@ -264,9 +114,9 @@ Improve latency while keeping the external runtime contract stable.
 
 ### Dependencies
 
-- Depends on Step 1 trace normalization.
-- Should integrate with Step 2 capability discovery so callers know whether speculation exists for the loaded model/runtime configuration.
-- Must be validated alongside Step 3 to ensure structured output still behaves correctly when speculation is enabled.
+- Depends on the existing trace normalization.
+- Should integrate with the existing capability-discovery surface so callers know whether speculation exists for the loaded model/runtime configuration.
+- Must be validated alongside structured output to ensure JSON-enforced modes still behave correctly when speculation is enabled.
 
 ### Verification
 
@@ -277,7 +127,7 @@ Runtime can:
 - preserve behavior when falling back to normal decoding
 - benchmark interaction with structured-output modes
 
-## Step 5: Runtime hardening
+## Step 3: Runtime hardening
 
 ### Goal
 
