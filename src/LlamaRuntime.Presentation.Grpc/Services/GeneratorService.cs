@@ -226,7 +226,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         if (usesNonDefaultTemperature || usesNonDefaultTopP || usesNonDefaultMaxOutputTokens)
         {
             throw CreateRpcException(
-                RuntimeErrorMetadata.InvalidArgumentCode,
+                RuntimeErrorMetadata.UnsupportedGenerationOverridesCode,
                 "Request-level generation overrides are not supported by this runtime yet. Omit Generation to use runtime defaults.",
                 StatusCode.InvalidArgument);
         }

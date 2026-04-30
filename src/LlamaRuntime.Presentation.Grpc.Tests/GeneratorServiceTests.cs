@@ -56,7 +56,7 @@ public sealed class GeneratorServiceTests
     }
 
     [Fact]
-    public async Task Generate_NonDefaultGenerationOverride_ReturnsInvalidArgumentTrailer()
+    public async Task Generate_NonDefaultGenerationOverride_ReturnsUnsupportedGenerationOverridesTrailer()
     {
         var service = CreateService();
 
@@ -71,8 +71,29 @@ public sealed class GeneratorServiceTests
                 TestServerCallContext.Create()));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal(RuntimeErrorMetadata.UnsupportedGenerationOverridesCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
         Assert.Contains("generation overrides", ex.Status.Detail);
+    }
+
+    [Fact]
+    public async Task Generate_MaxOutputTokensMatchingConfiguredDefault_IsAccepted()
+    {
+        var service = CreateService();
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "max-output-default",
+                Prompt = "world",
+                Generation = new GenerationOptions
+                {
+                    MaxOutputTokens = 8
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("mocked response", reply.Content);
+        Assert.Equal("max-output-default", reply.RequestId);
     }
 
     [Fact]
