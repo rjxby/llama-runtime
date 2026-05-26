@@ -47,4 +47,4 @@ build/
 models/
 dist/
 
-benchmark_*.csv
+benchmark_*

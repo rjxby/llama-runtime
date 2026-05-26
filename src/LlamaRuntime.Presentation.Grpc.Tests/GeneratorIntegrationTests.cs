@@ -96,8 +96,8 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
 
         Assert.Equal("test-model", reply.ModelId);
         Assert.Equal(32, reply.ContextSize);
-        Assert.False(reply.SupportsStructuredOutput);
-        Assert.False(reply.SupportsJsonObjectOutput);
+        Assert.True(reply.SupportsStructuredOutput);
+        Assert.True(reply.SupportsJsonOutput);
         Assert.False(reply.SupportsSpeculativeDecoding);
         Assert.Equal("sentencepiece", reply.TokenizerFamily);
 
@@ -130,13 +130,24 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
                     .Returns(new NativeContextMetadata(64));
                 nativeMock.Setup(x => x.CountTokens(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()))
                     .Returns<LlamaContextHandle, string>((_, prompt) => prompt.Length);
-                nativeMock.Setup(x => x.Infer(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()))
-                    .Returns<LlamaContextHandle, string>((_, prompt) =>
+                nativeMock.Setup(x => x.Infer(
+                        It.IsAny<LlamaContextHandle>(),
+                        It.IsAny<string>(),
+                        It.IsAny<NativeInferenceResponseFormat>(),
+                        It.IsAny<string?>()))
+                    .Returns<LlamaContextHandle, string, NativeInferenceResponseFormat, string?>((_, prompt, responseFormat, _) =>
+                    {
+                        var content = responseFormat == NativeInferenceResponseFormat.Grammar
+                            ? """{"alternate":true}"""
+                            : "alternate response";
+
+                        return
                         new NativeInferenceResult(
-                            "alternate response",
+                            content,
                             prompt.Length,
-                            "alternate response".Length,
-                            prompt.Length + "alternate response".Length));
+                            content.Length,
+                            prompt.Length + content.Length);
+                    });
 
                 services.RemoveAll<ILlamaNative>();
                 services.AddSingleton(nativeMock.Object);
@@ -173,6 +184,25 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
         Assert.False(reply.RuntimeTrace.StructuredOutputApplied);
         Assert.False(reply.RuntimeTrace.StructuredOutputSatisfied);
         Assert.False(reply.RuntimeTrace.SpeculativeDecodingUsed);
+
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task Generate_Json_ReturnsStructuredTrace()
+    {
+        var client = CreateClient(out var channel);
+
+        var reply = await client.GenerateAsync(new GenerateRequest
+        {
+            RequestId = "json",
+            Prompt = "world",
+            ResponseFormat = new ResponseFormat { Type = "json" }
+        }).ResponseAsync;
+
+        Assert.Equal("""{"ok":true}""", reply.Content);
+        Assert.True(reply.RuntimeTrace.StructuredOutputApplied);
+        Assert.True(reply.RuntimeTrace.StructuredOutputSatisfied);
 
         channel.Dispose();
     }

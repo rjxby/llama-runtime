@@ -11,6 +11,21 @@ static void assert_ok(int rc, const char *msg) {
   }
 }
 
+static int has_valid_usage(const char *output,
+                           const llama_adapter_infer_result_t *result) {
+  if (!output || !result) {
+    return 0;
+  }
+
+  if (result->prompt_tokens <= 0 || result->output_tokens < 0 ||
+      result->total_tokens != result->prompt_tokens + result->output_tokens ||
+      result->output_bytes < 0) {
+    return 0;
+  }
+
+  return result->output_bytes == (int32_t)strlen(output);
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "Usage: %s <model-file>\n", argv[0]);
@@ -41,7 +56,9 @@ int main(int argc, char **argv) {
   assert(ctx != NULL);
 
   char output[4096] = {0};
-  llama_adapter_generation_params_t params = {512, 0.0f, 1.0f, 0xFFFFFFFFu};
+  llama_adapter_generation_params_t params = {
+      512, 0.0f, 1.0f, 0xFFFFFFFFu, LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT,
+      nullptr};
   llama_adapter_infer_result_t result = {0};
   rc = llama_infer(ctx, "Hello! Tell me a short sentence about llamas.", &params,
                    output, sizeof(output), &result);
@@ -51,12 +68,7 @@ int main(int argc, char **argv) {
          result.prompt_tokens, result.output_tokens, result.total_tokens,
          result.output_bytes);
 
-  if (strlen(output) == 0) {
-    fprintf(stderr, "FAIL: empty inference output (1)\n");
-    return 1;
-  }
-  if (result.prompt_tokens <= 0 || result.output_tokens <= 0 ||
-      result.total_tokens != result.prompt_tokens + result.output_tokens) {
+  if (!has_valid_usage(output, &result)) {
     fprintf(stderr, "FAIL: invalid inference usage stats (1)\n");
     return 1;
   }
@@ -74,13 +86,62 @@ int main(int argc, char **argv) {
          result.prompt_tokens, result.output_tokens, result.total_tokens,
          result.output_bytes);
 
-  if (strlen(output) == 0) {
-    fprintf(stderr, "FAIL: empty inference output (2)\n");
+  if (!has_valid_usage(output, &result)) {
+    fprintf(stderr, "FAIL: invalid inference usage stats (2)\n");
     return 1;
   }
-  if (result.prompt_tokens <= 0 || result.output_tokens <= 0 ||
-      result.total_tokens != result.prompt_tokens + result.output_tokens) {
-    fprintf(stderr, "FAIL: invalid inference usage stats (2)\n");
+
+  rc = llama_context_reset(ctx);
+  assert_ok(rc, "context_reset json");
+
+  memset(output, 0, sizeof(output));
+  result = {0};
+  static const char *json_object_grammar = R"(root ::= object
+array ::= "[" space ( value ("," space value)* )? "]" space
+boolean ::= ("true" | "false") space
+char ::= [^"\\\x7F\x00-\x1F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})
+decimal-part ::= [0-9]{1,16}
+integral-part ::= [0] | [1-9] [0-9]{0,15}
+null ::= "null" space
+number ::= ("-"? integral-part) ("." decimal-part)? ([eE] [-+]? integral-part)? space
+object ::= "{" space ( string ":" space value ("," space string ":" space value)* )? "}" space
+space ::= | " " | "\n"{1,2} [ \t]{0,20}
+string ::= "\"" char* "\"" space
+value ::= object | array | string | number | boolean | null
+)";
+  llama_adapter_generation_params_t json_params = {
+      64, 0.0f, 1.0f, 0xFFFFFFFFu,
+      LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR, json_object_grammar};
+  rc = llama_infer(ctx,
+                   "Return exactly this JSON object: {\"ok\":true}",
+                   &json_params, output, sizeof(output), &result);
+  assert_ok(rc, "infer grammar");
+  printf("Inference grammar JSON object (truncated): %.200s\n", output);
+  printf("Inference grammar usage: prompt=%d output=%d total=%d bytes=%d\n",
+         result.prompt_tokens, result.output_tokens, result.total_tokens,
+         result.output_bytes);
+
+  if (!has_valid_usage(output, &result)) {
+    fprintf(stderr, "FAIL: invalid grammar usage stats\n");
+    return 1;
+  }
+
+  llama_adapter_generation_params_t missing_grammar_params = {
+      16, 0.0f, 1.0f, 0xFFFFFFFFu, LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR,
+      nullptr};
+  rc = llama_infer(ctx, "Hello", &missing_grammar_params, output,
+                   sizeof(output), &result);
+  if (rc != LLAMA_ADAPTER_ERR_INVALID_ARG) {
+    fprintf(stderr, "FAIL: missing grammar returned code=%d\n", rc);
+    return 1;
+  }
+
+  llama_adapter_generation_params_t invalid_params = {
+      16, 0.0f, 1.0f, 0xFFFFFFFFu, 999, nullptr};
+  rc = llama_infer(ctx, "Hello", &invalid_params, output, sizeof(output),
+                   &result);
+  if (rc != LLAMA_ADAPTER_ERR_INVALID_ARG) {
+    fprintf(stderr, "FAIL: invalid response format returned code=%d\n", rc);
     return 1;
   }
 

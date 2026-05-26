@@ -20,6 +20,14 @@ public class BenchmarkOptions
 
     public string? OutputFile { get; set; }
 
+    public string? InvocationFile { get; set; }
+
+    public bool LogInvocations { get; set; } = true;
+
+    public string ResponseFormat { get; set; } = "text";
+
+    public BenchmarkResponseFormat ResponseFormatKind { get; set; } = BenchmarkResponseFormat.Text;
+
     public int LlamaRestMaxNewTokens { get; set; } = 512;
 
     public double LlamaRestTemperature { get; set; } = 0.0;

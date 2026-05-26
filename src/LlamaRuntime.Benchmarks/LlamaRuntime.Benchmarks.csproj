@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <ProjectReference Include="..\LlamaRuntime.Engine.Contracts\LlamaRuntime.Engine.Contracts.csproj" />
     <ProjectReference Include="..\LlamaRuntime.Presentation.Grpc\LlamaRuntime.Presentation.Grpc.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -17,12 +17,17 @@ internal sealed class LlamaSession : IInferenceSession
         _onDispose = onDispose ?? throw new ArgumentNullException(nameof(onDispose));
     }
 
-    public Task<InferenceResult> InferAsync(string prompt, CancellationToken ct = default)
+    public Task<InferenceResult> InferAsync(
+        string prompt,
+        CancellationToken ct = default,
+        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
+        string? grammar = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
         ct.ThrowIfCancellationRequested();
 
-        var result = _native.Infer(_handle, prompt);
+        var nativeResponseFormat = MapResponseFormat(responseFormat);
+        var result = _native.Infer(_handle, prompt, nativeResponseFormat, grammar);
         return Task.FromResult(new InferenceResult(
             result.Content,
             result.InputTokens,
@@ -46,4 +51,12 @@ internal sealed class LlamaSession : IInferenceSession
         _onDispose(_handle);
         return ValueTask.CompletedTask;
     }
+
+    private static NativeInferenceResponseFormat MapResponseFormat(InferenceResponseFormat responseFormat) =>
+        responseFormat switch
+        {
+            InferenceResponseFormat.Text => NativeInferenceResponseFormat.Text,
+            InferenceResponseFormat.Json => NativeInferenceResponseFormat.Grammar,
+            _ => throw new ArgumentOutOfRangeException(nameof(responseFormat), responseFormat, "Unknown response format.")
+        };
 }

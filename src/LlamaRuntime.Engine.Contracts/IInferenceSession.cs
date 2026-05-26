@@ -8,7 +8,11 @@ public interface IInferenceSession : IAsyncDisposable
     Task<int> CountTokensAsync(string prompt, CancellationToken ct = default);
 
     /// <summary>
-    /// Executes inference within this isolated context.
+    /// Executes inference with the requested output constraint within this isolated context.
     /// </summary>
-    Task<InferenceResult> InferAsync(string prompt, CancellationToken ct = default);
+    Task<InferenceResult> InferAsync(
+        string prompt,
+        CancellationToken ct = default,
+        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
+        string? grammar = null);
 }

@@ -9,26 +9,31 @@ public static class BenchmarkRunner
         int iterations,
         int concurrency,
         Func<int, Task<BenchmarkInvocationResult>> invokeAsync,
+        BenchmarkRunMetadata metadata,
         ILogger logger)
     {
         var timings = new List<long>();
         int successCount = 0;
         int errorCount = 0;
         object lockObj = new();
+        using var invocationWriter = string.IsNullOrWhiteSpace(metadata.InvocationFile)
+            ? null
+            : new BenchmarkInvocationJsonlWriter(metadata.InvocationFile);
 
         async Task RunOnce(int idx)
         {
+            var sw = Stopwatch.StartNew();
             try
             {
-                var sw = Stopwatch.StartNew();
                 var result = await invokeAsync(idx).ConfigureAwait(false);
                 sw.Stop();
+                var elapsedMs = sw.ElapsedMilliseconds;
 
                 lock (lockObj)
                 {
                     if (result.Success)
                     {
-                        timings.Add(sw.ElapsedMilliseconds);
+                        timings.Add(elapsedMs);
                         successCount++;
                     }
                     else
@@ -37,28 +42,40 @@ public static class BenchmarkRunner
                     }
                 }
 
+                WriteInvocationRecord(invocationWriter, metadata, idx, elapsedMs, result);
+
                 if (result.Success)
                 {
                     logger.LogInformation(
                         "Run {Iteration} completed in {ElapsedMs} ms with status OK",
                         idx,
-                        sw.ElapsedMilliseconds);
+                        elapsedMs);
                 }
                 else
                 {
                     logger.LogWarning(
                         "Run {Iteration} completed in {ElapsedMs} ms with status ERR: {FailureReason}",
                         idx,
-                        sw.ElapsedMilliseconds,
+                        elapsedMs,
                         result.FailureReason ?? "Unknown failure");
                 }
             }
             catch (Exception ex)
             {
+                sw.Stop();
+                var elapsedMs = sw.ElapsedMilliseconds;
+
                 lock (lockObj)
                 {
                     errorCount++;
                 }
+
+                WriteInvocationRecord(
+                    invocationWriter,
+                    metadata,
+                    idx,
+                    elapsedMs,
+                    new BenchmarkInvocationResult(false, ex.Message, $"run-{idx}"));
 
                 logger.LogError(ex, "Run {Iteration} failed with an exception", idx);
             }
@@ -118,5 +135,31 @@ public static class BenchmarkRunner
             successCount,
             errorCount
         );
+    }
+
+    private static void WriteInvocationRecord(
+        BenchmarkInvocationJsonlWriter? writer,
+        BenchmarkRunMetadata metadata,
+        int iteration,
+        long latencyMs,
+        BenchmarkInvocationResult result)
+    {
+        if (writer is null)
+        {
+            return;
+        }
+
+        writer.Write(new BenchmarkInvocationLogRecord(
+            DateTimeOffset.UtcNow,
+            metadata.Mode,
+            iteration,
+            result.RequestId ?? $"run-{iteration}",
+            metadata.ResponseFormat,
+            latencyMs,
+            result.Success,
+            result.FailureReason,
+            metadata.Prompt,
+            result.Output,
+            result.RestParseFailureReason));
     }
 }

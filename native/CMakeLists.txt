@@ -39,6 +39,7 @@ message(STATUS "ABS LLAMA_LIBRARY_ROOT = ${LLAMA_LIBRARY_ROOT}")
 # -------------------------------------------------------------------
 add_library(llama_adapter SHARED
     src/llama_adapter_core.cpp
+    src/llama_adapter_structured_output.cpp
     src/llama_adapter.cpp
 )
 

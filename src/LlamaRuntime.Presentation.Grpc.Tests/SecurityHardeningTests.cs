@@ -130,7 +130,9 @@ public sealed partial class SecurityHardeningTests : IClassFixture<TestWebApplic
         provider.Setup(p => p.InferAsync(
                 It.IsAny<LlamaRuntime.Engine.Contracts.IEngineModel>(),
                 It.IsAny<string>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                LlamaRuntime.Engine.Contracts.InferenceResponseFormat.Text,
+                null))
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);

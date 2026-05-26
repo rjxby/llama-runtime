@@ -32,11 +32,18 @@ typedef enum {
   LLAMA_ADAPTER_ERR_UNKNOWN = 100
 } llama_adapter_error_t;
 
+typedef enum {
+  LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT = 0,
+  LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR = 1
+} llama_adapter_response_format_t;
+
 typedef struct {
   int32_t max_new_tokens;
   float temperature;
   float top_p;
   uint32_t seed;
+  int32_t response_format;
+  const char *grammar;
 } llama_adapter_generation_params_t;
 
 typedef struct {

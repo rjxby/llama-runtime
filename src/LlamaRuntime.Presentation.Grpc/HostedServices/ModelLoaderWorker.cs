@@ -56,7 +56,7 @@ public class ModelLoaderWorker : IHostedService
             _hostedModel.SetWarmingUp(model, _hostedModelId);
             LogDiscoveredModelMetadata();
 
-            var warmup = await _provider.InferAsync(model, _startupWarmupPrompt, cancellationToken).ConfigureAwait(false);
+            var warmup = await _provider.InferAsync(model, _startupWarmupPrompt, cancellationToken: cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Warm-up inference completed (len={Len})", warmup.Content.Length);
 
             _hostedModel.SetLoaded(model, _hostedModelId);
@@ -66,19 +66,24 @@ public class ModelLoaderWorker : IHostedService
         {
             if (model != null)
             {
-                try
-                {
-                    await _provider.UnloadModelAsync(model, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception unloadEx)
-                {
-                    _logger.LogWarning(unloadEx, "Failed unloading model after startup failure");
-                }
+                await UnloadAfterStartupFailureAsync(model).ConfigureAwait(false);
             }
 
             _hostedModel.SetFailed(ex);
             _logger.LogError(ex, "Failed to load model during startup");
             throw;
+        }
+    }
+
+    private async Task UnloadAfterStartupFailureAsync(IEngineModel model)
+    {
+        try
+        {
+            await _provider.UnloadModelAsync(model, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception unloadEx)
+        {
+            _logger.LogWarning(unloadEx, "Failed unloading model after startup failure");
         }
     }
 
@@ -111,16 +116,16 @@ public class ModelLoaderWorker : IHostedService
     {
         var runtimeInfo = _hostedRuntimeInfo.GetRuntimeInfo();
         _logger.LogInformation(
-            "Runtime capabilities for model {ModelId}: context_size={ContextSize}, tokenizer_family={TokenizerFamily}, supports_structured_output={SupportsStructuredOutput}, supports_json_object_output={SupportsJsonObjectOutput}, supports_speculative_decoding={SupportsSpeculativeDecoding}",
+            "Runtime capabilities for model {ModelId}: context_size={ContextSize}, tokenizer_family={TokenizerFamily}, supports_structured_output={SupportsStructuredOutput}, supports_json_output={SupportsJsonOutput}, supports_speculative_decoding={SupportsSpeculativeDecoding}",
             runtimeInfo.PublicModelId,
             runtimeInfo.EffectiveContextSize,
             runtimeInfo.TokenizerFamily,
             runtimeInfo.StructuredOutput.IsSupported,
-            runtimeInfo.JsonObjectOutput.IsSupported,
+            runtimeInfo.JsonOutput.IsSupported,
             runtimeInfo.SpeculativeDecoding.IsSupported);
 
         LogUnsupportedCapability(runtimeInfo, "structured_output", runtimeInfo.StructuredOutput);
-        LogUnsupportedCapability(runtimeInfo, "json_object_output", runtimeInfo.JsonObjectOutput);
+        LogUnsupportedCapability(runtimeInfo, "json_output", runtimeInfo.JsonOutput);
         LogUnsupportedCapability(runtimeInfo, "speculative_decoding", runtimeInfo.SpeculativeDecoding);
     }
 

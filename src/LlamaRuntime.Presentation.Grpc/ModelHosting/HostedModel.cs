@@ -8,11 +8,11 @@ namespace LlamaRuntime.Presentation.Grpc.ModelHosting;
 
 public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
 {
-    private const string StructuredOutputUnavailableDiagnostic =
-        "Structured output enforcement is not implemented in this runtime yet.";
+    private const string StructuredOutputAvailableDiagnostic =
+        "Structured output enforcement is available.";
 
-    private const string JsonObjectUnavailableDiagnostic =
-        "JSON object output requires structured output enforcement, which is not implemented in this runtime yet.";
+    private const string JsonAvailableDiagnostic =
+        "JSON output is available.";
 
     private const string SpeculativeDecodingUnavailableDiagnostic =
         "Speculative decoding is not implemented in this runtime yet.";
@@ -48,8 +48,8 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
             metadata?.TrainingContextSize,
             tokenizerType,
             FormatTokenizerFamily(tokenizerType),
-            new RuntimeCapabilityStatus(false, StructuredOutputUnavailableDiagnostic),
-            new RuntimeCapabilityStatus(false, JsonObjectUnavailableDiagnostic),
+            new RuntimeCapabilityStatus(true, StructuredOutputAvailableDiagnostic),
+            new RuntimeCapabilityStatus(true, JsonAvailableDiagnostic),
             new RuntimeCapabilityStatus(false, SpeculativeDecodingUnavailableDiagnostic),
             snapshot.FailureMessage);
     }
@@ -158,8 +158,11 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
             return candidate;
         }
 
-        return sourcePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0
-            ? "model"
-            : sourcePath.Trim();
+        if (sourcePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0)
+        {
+            return "model";
+        }
+
+        return sourcePath.Trim();
     }
 }

@@ -13,11 +13,15 @@ namespace LlamaRuntime.Presentation.Grpc.Tests;
 [Trait(TestCategories.Name, TestCategories.Unit)]
 public sealed class GeneratorServiceTests
 {
+    private const string ValidJsonSchema = """
+        {"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}
+        """;
+
     [Fact]
     public async Task Generate_BlankInferenceOutput_ReturnsInternalError()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "blank-output"))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "blank-output", InferenceResponseFormat.Text))
             .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
 
         var service = CreateService(coordinator);
@@ -37,7 +41,107 @@ public sealed class GeneratorServiceTests
     }
 
     [Fact]
-    public async Task Generate_JsonObjectResponseFormat_ReturnsUnsupportedResponseFormatTrailer()
+    public async Task Generate_JsonResponseFormat_ReturnsStructuredTrace()
+    {
+        var service = CreateService();
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "json-mode",
+                Prompt = "world",
+                ResponseFormat = new ResponseFormat { Type = "json" }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("""{"ok":true}""", reply.Content);
+        Assert.True(reply.RuntimeTrace.StructuredOutputApplied);
+        Assert.True(reply.RuntimeTrace.StructuredOutputSatisfied);
+    }
+
+    [Fact]
+    public async Task Generate_JsonResponseFormatWithoutSchema_PassesJsonOptionToCoordinator()
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "json-mode",
+                Prompt = "world",
+                ResponseFormat = new ResponseFormat { Type = "json" }
+            },
+            TestServerCallContext.Create());
+
+        coordinator.Verify(
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-mode", InferenceResponseFormat.Json, ""),
+            Times.Once);
+        coordinator.Verify(
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Generate_JsonResponseFormatWithSchema_PassesSchemaToCoordinator()
+    {
+        var coordinator = CreateCoordinator();
+        coordinator
+            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema))
+            .ReturnsAsync(CreateInferenceResult("""{"title":"ok"}"""));
+        var service = CreateService(coordinator);
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "schema-mode",
+                Prompt = "world",
+                ResponseFormat = new ResponseFormat
+                {
+                    Type = "json",
+                    JsonSchema = ValidJsonSchema
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("""{"title":"ok"}""", reply.Content);
+        Assert.True(reply.RuntimeTrace.StructuredOutputApplied);
+        Assert.True(reply.RuntimeTrace.StructuredOutputSatisfied);
+        coordinator.Verify(
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Generate_JsonResponseFormat_AllowsEmptyOrMissingSchema(string? schema)
+    {
+        var service = CreateService();
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "schema-missing",
+                Prompt = "world",
+                ResponseFormat = new ResponseFormat
+                {
+                    Type = "json",
+                    JsonSchema = schema ?? ""
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("""{"ok":true}""", reply.Content);
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"type\":\"array\"}")]
+    [InlineData("{\"type\":\"object\",\"oneOf\":[]}")]
+    [InlineData("{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}},\"additionalProperties\":false}")]
+    [InlineData("{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}},\"required\":[\"title\"]}")]
+    public async Task Generate_JsonResponseFormat_RejectsInvalidOrUnsupportedSchema(string schema)
     {
         var service = CreateService();
 
@@ -45,14 +149,67 @@ public sealed class GeneratorServiceTests
             service.Generate(
                 new GenerateRequest
                 {
-                    RequestId = "json-mode",
+                    RequestId = "schema-invalid",
                     Prompt = "world",
-                    ResponseFormat = new ResponseFormat { Type = "json_object" }
+                    ResponseFormat = new ResponseFormat
+                    {
+                        Type = "json",
+                        JsonSchema = schema
+                    }
                 },
                 TestServerCallContext.Create()));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RuntimeErrorMetadata.UnsupportedResponseFormatCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+    }
+
+    [Theory]
+    [InlineData("json_object")]
+    [InlineData("json_schema")]
+    public async Task Generate_LegacyJsonResponseFormatNames_AreRejected(string type)
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "legacy-json",
+                    Prompt = "world",
+                    ResponseFormat = new ResponseFormat { Type = type }
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+    }
+
+    [Theory]
+    [InlineData("Inference did not return a valid JSON object.")]
+    [InlineData("Inference did not return a JSON object at the root.")]
+    public async Task Generate_JsonValidationFailure_ReturnsStructuredOutputTrailer(
+        string expectedMessage)
+    {
+        var coordinator = CreateCoordinator();
+        coordinator
+            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-fail", InferenceResponseFormat.Json, ""))
+            .ThrowsAsync(new StructuredOutputException(expectedMessage));
+
+        var service = CreateService(coordinator);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "json-fail",
+                    Prompt = "world",
+                    ResponseFormat = new ResponseFormat { Type = "json" }
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.Internal, ex.StatusCode);
+        Assert.Equal(expectedMessage, ex.Status.Detail);
+        Assert.Equal(RuntimeErrorMetadata.StructuredOutputFailedCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
     }
 
     [Fact]
@@ -100,7 +257,7 @@ public sealed class GeneratorServiceTests
     public async Task Generate_AtomicInferenceFailure_ReturnsInternalErrorTrailer()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "usage-fail"))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "usage-fail", InferenceResponseFormat.Text))
             .ThrowsAsync(new InferenceException("count failed"));
 
         var service = CreateService(coordinator);
@@ -129,8 +286,8 @@ public sealed class GeneratorServiceTests
         var reply = await service.GetCapabilities(new GetCapabilitiesRequest(), TestServerCallContext.Create());
 
         Assert.Equal("public-model", reply.ModelId);
-        Assert.False(reply.SupportsStructuredOutput);
-        Assert.False(reply.SupportsJsonObjectOutput);
+        Assert.True(reply.SupportsStructuredOutput);
+        Assert.True(reply.SupportsJsonOutput);
         Assert.False(reply.SupportsSpeculativeDecoding);
         Assert.Equal("sentencepiece", reply.TokenizerFamily);
     }
@@ -206,7 +363,7 @@ public sealed class GeneratorServiceTests
         string expectedMessage)
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), scenario))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), scenario, InferenceResponseFormat.Text))
             .ThrowsAsync(scenario switch
             {
                 "prompt_budget_exceeded" => new PromptBudgetExceededException("Prompt exceeds input budget"),
@@ -252,7 +409,7 @@ public sealed class GeneratorServiceTests
     public async Task Generate_QueueRejected_ReturnsNormalizedTrailers()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "queue-rejected"))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "queue-rejected", InferenceResponseFormat.Text))
             .ThrowsAsync(new InferenceQueueRejectedException("Inference queue is closed because the runtime is stopping."));
 
         var service = CreateService(coordinator);
@@ -275,8 +432,8 @@ public sealed class GeneratorServiceTests
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "cancelled"))
-            .Returns(async (string _, CancellationToken ct, string? _) =>
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "cancelled", InferenceResponseFormat.Text, null))
+            .Returns(async (string _, CancellationToken ct, string? _, InferenceResponseFormat _, string? _) =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
@@ -363,8 +520,12 @@ public sealed class GeneratorServiceTests
     private static Mock<IInferenceCoordinator> CreateCoordinator()
     {
         var coordinator = new Mock<IInferenceCoordinator>();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text))
             .ReturnsAsync(CreateInferenceResult("mocked response"));
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, ""))
+            .ReturnsAsync(CreateInferenceResult("""{"ok":true}"""));
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, It.Is<string>(schema => !string.IsNullOrWhiteSpace(schema))))
+            .ReturnsAsync(CreateInferenceResult("""{"title":"ok"}"""));
         coordinator.Setup(c => c.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
             .ReturnsAsync((string prompt, CancellationToken _, string? _) => prompt.Length);
         return coordinator;

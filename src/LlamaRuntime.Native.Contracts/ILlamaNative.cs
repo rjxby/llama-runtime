@@ -19,5 +19,9 @@ public interface ILlamaNative : IDisposable
     void ResetContext(LlamaContextHandle ctx);
     int CountTokens(LlamaContextHandle ctx, string prompt);
 
-    NativeInferenceResult Infer(LlamaContextHandle ctx, string prompt);
+    NativeInferenceResult Infer(
+        LlamaContextHandle ctx,
+        string prompt,
+        NativeInferenceResponseFormat responseFormat = NativeInferenceResponseFormat.Text,
+        string? grammar = null);
 }

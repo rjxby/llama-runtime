@@ -11,5 +11,7 @@ internal static partial class NativeMethods
         public float Temperature;
         public float TopP;
         public uint Seed;
+        public int ResponseFormat;
+        public IntPtr Grammar;
     }
 }

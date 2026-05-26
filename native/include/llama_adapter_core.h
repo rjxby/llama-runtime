@@ -24,6 +24,9 @@ struct GenParams {
   float temperature = 0.0f;
   float top_p = 1.0f;
   uint32_t seed = LLAMA_DEFAULT_SEED;
+  llama_adapter_response_format_t response_format =
+      LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT;
+  std::string grammar;
 };
 
 class Model {
@@ -57,7 +60,8 @@ public:
   Error count_tokens(const char *prompt, int32_t *token_count);
   bool decode(const std::vector<llama_token> &tokens);
   bool sample_token(
-      llama_sampler *sampler, llama_token &token,
+      llama_sampler *sampler, llama_sampler *grammar_sampler,
+      llama_token &token,
       std::vector<llama_token> &generated_tokens);
   bool generate_tokens(
       std::vector<llama_token> &generated_tokens, const GenParams &params);
@@ -73,6 +77,7 @@ private:
   llama_context *ctx_ = nullptr;
   std::vector<llama_token> token_buffer_;
   std::vector<llama_pos> pos_buffer_;
+  std::vector<llama_token_data> sample_candidates_;
 
   int ctx_n_ctx_ = 0;
   int ctx_n_batch_ = 0;

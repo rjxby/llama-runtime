@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using LlamaRuntime.Benchmarks.Common;
 using LlamaRuntime.Benchmarks.Configuration;
 using Microsoft.Extensions.Logging;
@@ -15,9 +16,10 @@ public static class LlamaRestBenchmark
         var temperature = options.LlamaRestTemperature;
         logger.LogInformation("Endpoint: {Endpoint}", url);
         logger.LogInformation(
-            "REST decode settings: n_predict={MaxNewTokens}, temperature={Temperature}",
+            "REST decode settings: n_predict={MaxNewTokens}, temperature={Temperature}, response_format={ResponseFormat}",
             maxNewTokens,
-            temperature);
+            temperature,
+            BenchmarkResponseFormatParser.ToWireValue(options.ResponseFormatKind));
 
         using var httpClient = new HttpClient
         {
@@ -25,12 +27,7 @@ public static class LlamaRestBenchmark
             Timeout = TimeSpan.FromMinutes(5)
         };
 
-        var payload = new
-        {
-            prompt = options.Prompt,
-            n_predict = maxNewTokens,
-            temperature
-        };
+        var payload = CreatePayload(options);
 
         logger.LogInformation("Warming up...");
         for (int i = 0; i < 5; i++)
@@ -63,7 +60,33 @@ public static class LlamaRestBenchmark
                 logger,
                 $"run-{idx}",
                 isWarmup: false),
+            new BenchmarkRunMetadata(
+                options.Mode,
+                options.Prompt,
+                options.ResponseFormatKind,
+                options.LogInvocations ? options.InvocationFile : null),
             logger).ConfigureAwait(false);
+    }
+
+    private static object CreatePayload(BenchmarkOptions options)
+    {
+        if (options.ResponseFormatKind == BenchmarkResponseFormat.Json)
+        {
+            return new
+            {
+                prompt = options.Prompt,
+                n_predict = options.LlamaRestMaxNewTokens,
+                temperature = options.LlamaRestTemperature,
+                json_schema = JsonSerializer.Deserialize<JsonElement>(BenchmarkJsonSchema.SchemaJson)
+            };
+        }
+
+        return new
+        {
+            prompt = options.Prompt,
+            n_predict = options.LlamaRestMaxNewTokens,
+            temperature = options.LlamaRestTemperature
+        };
     }
 
     private static async Task<BenchmarkInvocationResult> SendRequestAsync(
@@ -84,7 +107,10 @@ public static class LlamaRestBenchmark
 
         var (result, parseResult) = BenchmarkResponseValidator.ValidateLlamaRestResponse(
             responseBody,
-            options.StrictResponseValidation);
+            options.StrictResponseValidation,
+            options.ResponseFormatKind,
+            requestId,
+            options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
 
         if (isWarmup && !result.Success)
         {

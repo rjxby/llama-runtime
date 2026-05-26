@@ -160,6 +160,9 @@ int llama_infer(
 - tokenizes prompt
 - decodes prompt
 - samples continuation through llama.cpp sampler APIs
+- applies grammar sampling when `params->response_format` is
+  `LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR` and `params->grammar` contains a
+  ready-made GBNF grammar
 - writes null-terminated result to `out`
 - fills token/byte usage in `result`
 

@@ -11,6 +11,6 @@ public sealed record HostedRuntimeInfo(
     NativeTokenizerType TokenizerType,
     string TokenizerFamily,
     RuntimeCapabilityStatus StructuredOutput,
-    RuntimeCapabilityStatus JsonObjectOutput,
+    RuntimeCapabilityStatus JsonOutput,
     RuntimeCapabilityStatus SpeculativeDecoding,
     string? FailureMessage = null);

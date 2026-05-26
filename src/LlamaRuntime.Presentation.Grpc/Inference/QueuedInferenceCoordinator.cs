@@ -13,10 +13,15 @@ public sealed class QueuedInferenceCoordinator : IInferenceCoordinator
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
     }
 
-    public Task<InferenceResult> InferAsync(string prompt, CancellationToken cancellationToken, string? requestId = null) =>
+    public Task<InferenceResult> InferAsync(
+        string prompt,
+        CancellationToken cancellationToken,
+        string? requestId = null,
+        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
+        string? jsonSchema = null) =>
         _queue.EnqueueAsync(
             InferenceWorkQueue.InferenceOperation.Infer,
-            (model, ct) => _provider.InferAsync(model, prompt, ct),
+            (model, ct) => _provider.InferAsync(model, prompt, ct, responseFormat, jsonSchema),
             cancellationToken,
             requestId);
 

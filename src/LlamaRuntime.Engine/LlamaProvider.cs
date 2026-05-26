@@ -38,10 +38,13 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             modelHandle = _native.LoadModel(path);
+            cancellationToken.ThrowIfCancellationRequested();
 
             var nativeMetadata = _native.GetModelMetadata(modelHandle);
             var probeContext = CreateProbeContext(modelHandle, path);
             probeContextHandle = probeContext.ContextHandle;
+            cancellationToken.ThrowIfCancellationRequested();
+
             var contextMetadata = probeContext.Metadata;
             ValidateRequestedContext(path, contextMetadata.ContextSize);
             var metadata = CreateModelMetadata(nativeMetadata, contextMetadata);
@@ -62,28 +65,11 @@ public sealed class LlamaProvider : ILlamaProvider
         }
         catch (Exception ex)
         {
-            if (probeContextHandle != null)
-            {
-                try
-                {
-                    _native.RemoveContext(probeContextHandle);
-                }
-                catch (Exception removeEx)
-                {
-                    _logger.LogWarning(removeEx, "Failed releasing probe context while loading {Path}", path);
-                }
-            }
+            CleanupFailedLoad(path, probeContextHandle, modelHandle);
 
-            if (modelHandle != null)
+            if (ex is OperationCanceledException)
             {
-                try
-                {
-                    _native.UnloadModel(modelHandle);
-                }
-                catch (Exception unloadEx)
-                {
-                    _logger.LogWarning(unloadEx, "Failed unloading model after load failure from {Path}", path);
-                }
+                throw;
             }
 
             _logger.LogError(ex, "Failed to load model from {Path}", path);
@@ -119,7 +105,12 @@ public sealed class LlamaProvider : ILlamaProvider
         return await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<InferenceResult> InferAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
+    public async Task<InferenceResult> InferAsync(
+        IEngineModel model,
+        string prompt,
+        CancellationToken cancellationToken = default,
+        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
+        string? jsonSchema = null)
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
@@ -128,7 +119,7 @@ public sealed class LlamaProvider : ILlamaProvider
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            return await InferContentAsync(model, session, prompt, cancellationToken).ConfigureAwait(false);
+            return await InferContentAsync(model, session, prompt, cancellationToken, responseFormat, jsonSchema).ConfigureAwait(false);
         }
         catch (NativeException ex)
         {
@@ -140,11 +131,23 @@ public sealed class LlamaProvider : ILlamaProvider
         IEngineModel model,
         IInferenceSession session,
         string prompt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        InferenceResponseFormat responseFormat,
+        string? jsonSchema)
     {
         try
         {
-            var result = await session.InferAsync(prompt, cancellationToken).ConfigureAwait(false);
+            var structuredOutput = responseFormat == InferenceResponseFormat.Json
+                ? JsonStructuredOutput.Parse(jsonSchema)
+                : null;
+            var grammar = structuredOutput?.Grammar;
+            var result = await session.InferAsync(prompt, cancellationToken, responseFormat, grammar).ConfigureAwait(false);
+            if (responseFormat == InferenceResponseFormat.Json)
+            {
+                structuredOutput!.ValidateOutput(result.Content);
+                return result;
+            }
+
             if (string.IsNullOrWhiteSpace(result.Content))
             {
                 throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
@@ -198,15 +201,61 @@ public sealed class LlamaProvider : ILlamaProvider
         LlamaModelHandle modelHandle,
         string path)
     {
+        LlamaContextHandle? contextHandle = null;
         try
         {
-            var contextHandle = _native.CreateContext(modelHandle);
+            contextHandle = _native.CreateContext(modelHandle);
             var metadata = _native.GetContextMetadata(contextHandle);
             return (contextHandle, metadata);
         }
-        catch (Exception ex) when (ex is not ModelLoadException)
+        catch (Exception ex)
         {
+            if (contextHandle != null)
+            {
+                RemoveProbeContext(path, contextHandle);
+            }
+
+            if (ex is ModelLoadException or OperationCanceledException)
+            {
+                throw;
+            }
+
             throw new ModelLoadException($"Failed to determine actual runtime context size for {path}.", ex);
+        }
+    }
+
+    private void CleanupFailedLoad(
+        string path,
+        LlamaContextHandle? probeContextHandle,
+        LlamaModelHandle? modelHandle)
+    {
+        if (probeContextHandle != null)
+        {
+            RemoveProbeContext(path, probeContextHandle);
+        }
+
+        if (modelHandle != null)
+        {
+            try
+            {
+                _native.UnloadModel(modelHandle);
+            }
+            catch (Exception unloadEx)
+            {
+                _logger.LogWarning(unloadEx, "Failed unloading model after load failure from {Path}", path);
+            }
+        }
+    }
+
+    private void RemoveProbeContext(string path, LlamaContextHandle contextHandle)
+    {
+        try
+        {
+            _native.RemoveContext(contextHandle);
+        }
+        catch (Exception removeEx)
+        {
+            _logger.LogWarning(removeEx, "Failed releasing probe context while loading {Path}", path);
         }
     }
 

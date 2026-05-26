@@ -45,6 +45,7 @@ The current runtime keeps request-level generation behavior narrow: it uses gree
 * **gRPC runtime** — single-file, self-contained `llama-runtime-grpc` built on .NET 10.
 * **Normalized runtime contract** — `llama.v2` exposes model identity, usage, runtime trace fields, and capability discovery.
 * **Load-time capability discovery** — `GetCapabilities` reports the effective features of the currently loaded model/runtime pair instead of relying on static config assumptions.
+* **Structured output** — `json` response format supports either any JSON object or a JSON object constrained by a caller-provided schema. The managed runtime converts schemas to grammar, native applies grammar sampling, and output is validated before success.
 * **Secure by default** — API key authentication and environment-based configuration.
 * **Benchmarking tools** — compare gRPC runtime vs. `llama.cpp` REST baseline.
 * **Cross-platform** — macOS (Apple Silicon) and Linux supported.
@@ -202,6 +203,30 @@ make bench-llama-rest
 
 Benchmarks include latency and throughput comparisons. Use them to validate queue sizing, worker counts, and deployment tradeoffs.
 For the full harness setup, environment variables, and output format, see [docs/benchmarking.md](docs/benchmarking.md).
+
+---
+
+## Structured output
+
+`GenerateRequest.response_format.type` supports:
+
+* `text` or unset — normal text generation.
+* `json` — a complete JSON object. Omit `response_format.json_schema`, pass an empty string, or pass `{}` for any object. Pass a non-empty schema to constrain the object shape.
+
+`json` uses a raw JSON Schema string when constraints are needed:
+
+```json
+{
+  "request_id": "extract-1",
+  "prompt": "Extract a short support-ticket summary.",
+  "response_format": {
+    "type": "json",
+    "json_schema": "{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}},\"required\":[\"title\"],\"additionalProperties\":false}"
+  }
+}
+```
+
+The v1 schema subset is intentionally strict: every object schema must declare `properties`, `required`, and `additionalProperties: false`, and `required` must list exactly every declared property. It supports root object schemas, nested strict objects, arrays, strings, numbers, integers, booleans, null, and string enums. The schema constrains shape; the prompt should still describe field meaning and task intent. Native inference receives only text mode or a ready-made grammar string; it does not parse JSON Schema.
 
 ---
 

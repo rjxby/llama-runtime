@@ -33,7 +33,8 @@ public sealed class LlamaNative : ILlamaNative
     {
         EnsureNotDisposed();
         var sb = new StringBuilder(_options.InferenceBufferSize);
-        var rc = NativeMethods.llama_adapter_get_version(sb, (UIntPtr)sb.Capacity);
+        var bufferSize = (UIntPtr)sb.Capacity;
+        var rc = NativeMethods.llama_adapter_get_version(sb, bufferSize);
         ThrowIfError(rc, "GetVersion");
         return sb.ToString();
     }
@@ -121,34 +122,58 @@ public sealed class LlamaNative : ILlamaNative
         return tokenCount;
     }
 
-    public NativeInferenceResult Infer(LlamaContextHandle ctx, string prompt)
+    public NativeInferenceResult Infer(
+        LlamaContextHandle ctx,
+        string prompt,
+        NativeInferenceResponseFormat responseFormat = NativeInferenceResponseFormat.Text,
+        string? grammar = null)
     {
         EnsureNotDisposed();
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
 
-        var parameters = new NativeMethods.LlamaAdapterGenerationParams
+        var grammarPtr = IntPtr.Zero;
+        try
         {
-            MaxNewTokens = _options.GenerationMaxNewTokens,
-            Temperature = 0.0f,
-            TopP = 1.0f,
-            Seed = uint.MaxValue
-        };
-        var sb = new StringBuilder(_options.InferenceBufferSize);
-        var rc = NativeMethods.llama_infer(
-            ctx,
-            prompt,
-            in parameters,
-            sb,
-            (UIntPtr)sb.Capacity,
-            out var result);
+            if (!string.IsNullOrEmpty(grammar))
+            {
+                grammarPtr = Marshal.StringToHGlobalAnsi(grammar);
+            }
 
-        ThrowIfError(rc, "Infer");
-        return new NativeInferenceResult(
-            sb.ToString(),
-            result.PromptTokens,
-            result.OutputTokens,
-            result.TotalTokens);
+            var nativeResponseFormat = (int)responseFormat;
+            var parameters = new NativeMethods.LlamaAdapterGenerationParams
+            {
+                MaxNewTokens = _options.GenerationMaxNewTokens,
+                Temperature = 0.0f,
+                TopP = 1.0f,
+                Seed = uint.MaxValue,
+                ResponseFormat = nativeResponseFormat,
+                Grammar = grammarPtr
+            };
+            var sb = new StringBuilder(_options.InferenceBufferSize);
+            var bufferSize = (UIntPtr)sb.Capacity;
+            var rc = NativeMethods.llama_infer(
+                ctx,
+                prompt,
+                in parameters,
+                sb,
+                bufferSize,
+                out var result);
+
+            ThrowIfError(rc, "Infer");
+            return new NativeInferenceResult(
+                sb.ToString(),
+                result.PromptTokens,
+                result.OutputTokens,
+                result.TotalTokens);
+        }
+        finally
+        {
+            if (grammarPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(grammarPtr);
+            }
+        }
     }
 
     private static void ThrowIfError(int code, string op)

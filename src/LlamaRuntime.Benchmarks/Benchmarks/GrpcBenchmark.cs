@@ -40,16 +40,15 @@ public static class GrpcBenchmark
             var requestId = $"warmup-{i}";
             try
             {
-                var reply = await client.GenerateAsync(new GenerateRequest
-                {
-                    RequestId = requestId,
-                    Prompt = options.Prompt
-                }).ConfigureAwait(false);
+                var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
 
                 var validation = BenchmarkResponseValidator.ValidateGeneratedText(
                     reply.Content,
                     options.StrictResponseValidation,
-                    "gRPC");
+                    "gRPC",
+                    options.ResponseFormatKind,
+                    requestId,
+                    options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
 
                 if (!validation.Success)
                 {
@@ -72,17 +71,41 @@ public static class GrpcBenchmark
             async idx =>
             {
                 var requestId = $"run-{idx}";
-                var reply = await client.GenerateAsync(new GenerateRequest
-                {
-                    RequestId = requestId,
-                    Prompt = options.Prompt
-                }).ConfigureAwait(false);
+                var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
 
                 return BenchmarkResponseValidator.ValidateGeneratedText(
                     reply.Content,
                     options.StrictResponseValidation,
-                    "gRPC");
+                    "gRPC",
+                    options.ResponseFormatKind,
+                    requestId,
+                    options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
             },
+            new BenchmarkRunMetadata(
+                options.Mode,
+                options.Prompt,
+                options.ResponseFormatKind,
+                options.LogInvocations ? options.InvocationFile : null),
             logger).ConfigureAwait(false);
+    }
+
+    private static GenerateRequest CreateRequest(string requestId, BenchmarkOptions options)
+    {
+        var request = new GenerateRequest
+        {
+            RequestId = requestId,
+            Prompt = options.Prompt
+        };
+
+        if (options.ResponseFormatKind == BenchmarkResponseFormat.Json)
+        {
+            request.ResponseFormat = new ResponseFormat
+            {
+                Type = "json",
+                JsonSchema = BenchmarkJsonSchema.SchemaJson
+            };
+        }
+
+        return request;
     }
 }

@@ -1,3 +1,4 @@
+using LlamaRuntime.Benchmarks.Common;
 using Microsoft.Extensions.Configuration;
 
 namespace LlamaRuntime.Benchmarks.Configuration;
@@ -9,9 +10,22 @@ public static class ConfigurationLoader
         var builder = new ConfigurationBuilder()
             .AddEnvironmentVariables("BENCH_");
 
-        var config = builder.Build();
+        return Load(builder.Build());
+    }
+
+    public static BenchmarkOptions Load(IConfiguration config)
+    {
         var options = new BenchmarkOptions();
         config.Bind(options);
+        ApplyAliases(config, options);
+
+        if (!BenchmarkResponseFormatParser.TryParse(options.ResponseFormat, out var responseFormat))
+        {
+            throw new InvalidOperationException("ResponseFormat must be one of: text, json.");
+        }
+
+        options.ResponseFormatKind = responseFormat;
+        ApplyResponseFormatDefaults(config, options);
 
         Validate(options);
         return options;
@@ -43,5 +57,40 @@ public static class ConfigurationLoader
         if (options.Concurrency <= 0) throw new InvalidOperationException("Concurrency must be > 0");
         if (options.LlamaRestMaxNewTokens <= 0) throw new InvalidOperationException("LlamaRestMaxNewTokens must be > 0");
         if (options.LlamaRestTemperature < 0) throw new InvalidOperationException("LlamaRestTemperature must be >= 0");
+    }
+
+    private static void ApplyAliases(IConfiguration config, BenchmarkOptions options)
+    {
+        options.OutputFile ??= config["OUTPUT_FILE"];
+        options.InvocationFile ??= config["INVOCATION_FILE"];
+
+        var logInvocations = config["LOG_INVOCATIONS"];
+        if (!string.IsNullOrWhiteSpace(logInvocations))
+        {
+            if (!bool.TryParse(logInvocations, out var parsed))
+            {
+                throw new InvalidOperationException("LogInvocations must be true or false.");
+            }
+
+            options.LogInvocations = parsed;
+        }
+
+        var responseFormat = config["RESPONSE_FORMAT"];
+        if (!string.IsNullOrWhiteSpace(responseFormat))
+        {
+            options.ResponseFormat = responseFormat;
+        }
+    }
+
+    private static void ApplyResponseFormatDefaults(IConfiguration config, BenchmarkOptions options)
+    {
+        var promptWasProvided =
+            !string.IsNullOrWhiteSpace(config["Prompt"]) ||
+            !string.IsNullOrWhiteSpace(config["PROMPT"]);
+
+        if (options.ResponseFormatKind == BenchmarkResponseFormat.Json && !promptWasProvided)
+        {
+            options.Prompt = BenchmarkJsonSchema.DefaultPrompt;
+        }
     }
 }

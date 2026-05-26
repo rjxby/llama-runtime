@@ -47,49 +47,7 @@ Because of that, the runtime should not introduce a request-level model selector
 
 If future requirements demand multi-model hosting in one runtime process, that should be handled as a separate architecture change with explicit loading, eviction, isolation, and capability-discovery rules.
 
-## Step 1: Structured output
-
-### Goal
-
-Support reliable machine-readable output while keeping enforcement internals hidden behind the runtime contract.
-
-### Affected areas
-
-- generation pipeline
-- llama.cpp option mapping
-- validation helpers
-- runtime trace
-- tests
-- benchmarks
-
-### Supported external contract values
-
-- `text`
-- `json_object`
-
-### Implementation intent
-
-- Implement structured output as a runtime-level enforcement mechanism layered on top of llama.cpp; callers should depend on the runtime contract, not on a llama.cpp-native response-format API.
-- Allow internal decoding constraints or post-generation validation if needed, without exposing those internals in the public API.
-- Validate JSON-object output before returning success to the caller when `response_format.type` is `json_object`.
-- Use normalized trace and error fields to report whether structured-output enforcement was applied and whether enforcement succeeded or failed.
-- Record structured-output outcome explicitly in `RuntimeTrace` so successful enforcement, bypassed enforcement, and failed enforcement are distinguishable.
-
-### Dependencies
-
-- Depends on the existing response-format and trace fields.
-- Benefits from the existing capability-discovery surface so callers can avoid unsupported modes.
-
-### Verification
-
-Runtime can:
-
-- enforce JSON output
-- validate JSON-object replies
-- report structured-output success or failure through normalized trace and error data
-- benchmark structured-output behavior per model and config
-
-## Step 2: Speculative decoding
+## Step 1: Speculative decoding
 
 ### Goal
 
@@ -114,7 +72,7 @@ Improve latency while keeping the external runtime contract stable.
 
 ### Dependencies
 
-- Depends on the existing trace normalization.
+- Depends on the existing trace normalization and structured-output enforcement.
 - Should integrate with the existing capability-discovery surface so callers know whether speculation exists for the loaded model/runtime configuration.
 - Must be validated alongside structured output to ensure JSON-enforced modes still behave correctly when speculation is enabled.
 
@@ -127,7 +85,7 @@ Runtime can:
 - preserve behavior when falling back to normal decoding
 - benchmark interaction with structured-output modes
 
-## Step 3: Runtime hardening
+## Step 2: Runtime hardening
 
 ### Goal
 
@@ -152,7 +110,7 @@ Make the runtime reliable as a reusable worker for proxy integration and operati
 
 ### Dependencies
 
-- Builds on the normalized error and trace surfaces introduced earlier.
+- Builds on the existing normalized error, trace, and capability surfaces.
 - Should be completed before treating the runtime contract as stable for broad proxy reuse.
 
 ### Verification
@@ -169,4 +127,4 @@ Runtime can:
 - Multi-model hosting is deferred. If required later, it should be specified as a separate roadmap item that covers loading policy, eviction policy, memory accounting, request routing, and per-model capability lookup.
 - Tool-call normalization is deferred to the proxy. If a later design moves normalized tool-call parsing into runtime, that should be introduced as a separate contract change.
 - The exact trailer error-code taxonomy should be defined during implementation, but it should be stable and integration-friendly once introduced.
-- The exact benchmark matrix can remain implementation-defined so long as it covers baseline text generation, structured output, and speculative decoding where supported.
+- The exact benchmark matrix can remain implementation-defined so long as it covers baseline text generation and speculative decoding where supported.

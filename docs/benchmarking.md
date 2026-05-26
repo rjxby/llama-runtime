@@ -41,9 +41,12 @@ The benchmark harness supports **two modes**: `grpc` and `llama-rest`.
 
 * `BENCH_ITERATIONS` — number of requests to send (default: 50)
 * `BENCH_CONCURRENCY` — number of concurrent requests (default: 1)
-* `BENCH_PROMPT` — text prompt to send (default story prompt)
+* `BENCH_PROMPT` — text prompt to send (default story prompt; `json` has a structured extraction default)
+* `BENCH_RESPONSEFORMAT` — response format to request. Use `text` or `json` (default: `text`).
 * `BENCH_GRPCURL` — absolute gRPC base URL for the runtime (default: `http://localhost:5000`)
 * `BENCH_OUTPUT_FILE` — (Optional) Path to save CSV results. If unset, it generates `benchmark_{mode}_{date}_{counter}.csv`.
+* `BENCH_LOG_INVOCATIONS` — write one JSONL record per measured invocation, including prompt and generated output (default: `true`).
+* `BENCH_INVOCATION_FILE` — (Optional) Path to save invocation JSONL. If unset, it derives `<summary-name>.invocations.jsonl` from the CSV summary file.
 * `BENCH_APIKEY` — **Required for gRPC.** API key matching `ApiKeys__Keys__...` in service config.
 * `BENCH_LLAMARESTMAXNEWTOKENS` — max tokens requested from the REST baseline. Default: `512` to align with the gRPC runtime default `GenerationMaxNewTokens`.
 * `BENCH_LLAMARESTTEMPERATURE` — temperature requested from the REST baseline. Default: `0.0` to align more closely with the gRPC runtime's greedy decoding.
@@ -60,6 +63,15 @@ make bench-llama-runtime-grpc
 make bench-llama-rest
 ```
 
+### Run JSON Benchmarks
+
+```bash
+BENCH_RESPONSEFORMAT=json make bench-llama-runtime-grpc
+BENCH_RESPONSEFORMAT=json make bench-llama-rest
+```
+
+`json` mode uses the same built-in schema for both transports: required string fields `title`, `summary`, `category`, and `next_action`, with `additionalProperties: false`. This keeps benchmark success from being satisfied by `{}`.
+
 > Both benchmarks share identical timing and concurrency logic, making them directly comparable.
 > The REST benchmark defaults are intentionally aligned with the current gRPC runtime defaults. Override them only when you are explicitly testing a different decode configuration.
 
@@ -72,6 +84,10 @@ Results are logged to the console and optionally to a CSV file.
 **CSV Columns:**
 `Timestamp, Mode, Iterations, Concurrency, AvgLatency, P50, P90, P99, Throughput, SuccessRate, ErrorCount`
 
+When `BENCH_LOG_INVOCATIONS=true`, the harness also writes a JSONL sidecar with one record per non-warmup request. Each record includes timestamp, mode, iteration, request id, response format, measured latency, success/error state, prompt, generated output, and REST parse diagnostics when applicable.
+
+The JSONL sidecar can contain sensitive prompt and model-output payloads. It is intended for benchmark reproducibility and sanity checks only; runtime/service logs remain payload-free.
+
 ---
 
 ## 5. Notes
@@ -81,5 +97,8 @@ Results are logged to the console and optionally to a CSV file.
 * Use `BENCH_CONCURRENCY` to test throughput under multiple simultaneous requests.
 * Adjust `BENCH_PROMPT` and model size to evaluate different scenarios.
 * If you compare gRPC against REST, keep `n_predict` / `GenerationMaxNewTokens` and decoding policy aligned first. Different decode defaults can dominate the results.
+* Runtime `json` mode without a schema only requires an object root, so `{}` is a valid successful output.
+* The benchmark intentionally sends the built-in schema whenever `BENCH_RESPONSEFORMAT=json`, so both gRPC and REST must produce useful fields.
+* The gRPC benchmark sends `response_format.type=json` plus `response_format.json_schema`. The llama.cpp REST benchmark sends the same schema through `/completion` as `json_schema`.
 
 ---

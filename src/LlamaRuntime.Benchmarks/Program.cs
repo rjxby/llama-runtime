@@ -43,7 +43,32 @@ catch (Exception ex)
 logger.LogInformation("Mode         : {Mode}", options.Mode);
 logger.LogInformation("Iterations   : {Iterations}", options.Iterations);
 logger.LogInformation("Concurrency  : {Concurrency}", options.Concurrency);
+logger.LogInformation("Response fmt : {ResponseFormat}", BenchmarkResponseFormatParser.ToWireValue(options.ResponseFormatKind));
 logger.LogInformation("Prompt chars : {PromptLength}", options.Prompt.Length);
+
+var outputFile = options.OutputFile;
+if (string.IsNullOrEmpty(outputFile))
+{
+    var date = DateTime.Now.ToString("yyyy-MM-dd");
+    int counter = 1;
+    do
+    {
+        outputFile = $"benchmark_{options.Mode}_{date}_{counter}.csv";
+        counter++;
+    } while (File.Exists(outputFile));
+
+    options.OutputFile = outputFile;
+}
+
+if (options.LogInvocations && string.IsNullOrEmpty(options.InvocationFile))
+{
+    options.InvocationFile = BenchmarkInvocationLogPath.DeriveFromSummaryFile(outputFile);
+}
+
+if (options.LogInvocations)
+{
+    logger.LogInformation("Invocation log: {InvocationFile}", options.InvocationFile);
+}
 
 BenchmarkResult? result = null;
 
@@ -65,18 +90,6 @@ switch (options.Mode)
 
 if (result != null)
 {
-    var outputFile = options.OutputFile;
-    if (string.IsNullOrEmpty(outputFile))
-    {
-        var date = DateTime.Now.ToString("yyyy-MM-dd");
-        int counter = 1;
-        do
-        {
-            outputFile = $"benchmark_{options.Mode}_{date}_{counter}.csv";
-            counter++;
-        } while (File.Exists(outputFile));
-    }
-
     try
     {
         bool fileExists = File.Exists(outputFile);

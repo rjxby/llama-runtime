@@ -27,7 +27,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
         var logger = new ListLogger<QueuedInferenceWorker>();
         hostedModel.SetLoaded(model);
 
-        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ReturnsAsync(new InferenceResult("ok", 5, 2, 7));
         provider.Setup(p => p.CountTokensAsync(model, "prompt", It.IsAny<CancellationToken>()))
             .ReturnsAsync(5);
@@ -50,6 +50,40 @@ public sealed partial class QueuedInferenceCoordinatorTests
     }
 
     [Fact]
+    public async Task InferAsync_WithResponseFormat_ForwardsStructuredOptionToProvider()
+    {
+        var provider = new Mock<ILlamaProvider>();
+        var hostedModel = CreateHostedModel();
+        var model = CreateModel();
+        hostedModel.SetLoaded(model);
+
+        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Json, ""))
+            .ReturnsAsync(new InferenceResult("""{"ok":true}""", 5, 4, 9));
+
+        var (coordinator, worker) = CreateHarness(provider.Object, hostedModel);
+
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            var result = await coordinator.InferAsync(
+                "prompt",
+                CancellationToken.None,
+                "json-request",
+                InferenceResponseFormat.Json,
+                "");
+
+            Assert.Equal("""{"ok":true}""", result.Content);
+            provider.Verify(
+                p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Json, ""),
+                Times.Once);
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task InferAsync_WhenQueueIsSaturated_ThrowsInferenceQueueRejectedException()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -57,7 +91,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
         var hostedModel = CreateHostedModel();
         hostedModel.SetLoaded(CreateModel());
 
-        provider.Setup(p => p.InferAsync(It.IsAny<IEngineModel>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(It.IsAny<IEngineModel>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
@@ -155,13 +189,13 @@ public sealed partial class QueuedInferenceCoordinatorTests
         var model = CreateModel();
         hostedModel.SetLoaded(model);
 
-        provider.Setup(p => p.InferAsync(model, "first", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "first", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
                 return new InferenceResult("ok", 5, 2, 7);
             });
-        provider.Setup(p => p.InferAsync(model, "second", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "second", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ReturnsAsync(new InferenceResult("late", 5, 4, 9));
 
         var (coordinator, worker) = CreateHarness(provider.Object, hostedModel);
@@ -196,8 +230,8 @@ public sealed partial class QueuedInferenceCoordinatorTests
         var model = CreateModel();
         hostedModel.SetLoaded(model);
 
-        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>()))
-            .Returns(async (IEngineModel _, string _, CancellationToken ct) =>
+        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text, null))
+            .Returns(async (IEngineModel _, string _, CancellationToken ct, InferenceResponseFormat _, string? _) =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
@@ -251,7 +285,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
 
         provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
             .ReturnsAsync(model);
-        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .Returns(async () =>
             {
                 warmupStarted.TrySetResult();
@@ -305,7 +339,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
 
         provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
             .ReturnsAsync(model);
-        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ThrowsAsync(new InferenceException("warmup failed"));
         provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -335,7 +369,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
 
         provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
             .ReturnsAsync(model);
-        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
         provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -354,6 +388,41 @@ public sealed partial class QueuedInferenceCoordinatorTests
         Assert.Equal("Inference returned blank output for a text-generation request.", ex.Message);
         Assert.Equal(HostedModelState.Failed, hostedModel.GetSnapshot().State);
         provider.Verify(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ModelLoaderWorker_CancelledWarmup_UnloadsModelWithNonCancelledCleanupToken()
+    {
+        using var cts = new CancellationTokenSource();
+        var provider = new Mock<ILlamaProvider>();
+        var hostedModel = CreateHostedModel();
+        var model = CreateModel();
+
+        provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(model);
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
+            .Returns(() =>
+            {
+                cts.Cancel();
+                return Task.FromException<InferenceResult>(new OperationCanceledException(cts.Token));
+            });
+        provider.Setup(p => p.UnloadModelAsync(model, It.Is<CancellationToken>(token => !token.IsCancellationRequested)))
+            .Returns(Task.CompletedTask);
+
+        var worker = new ModelLoaderWorker(
+            NullLogger<ModelLoaderWorker>.Instance,
+            provider.Object,
+            hostedModel,
+            hostedModel,
+            Options.Create(new HostedModelOptions { ModelPath = "model.gguf", ModelId = "model" }),
+            TestModelFactory.CreateNativeOptions(),
+            Options.Create(new InferenceOptions { StartupWarmupPrompt = "Hello" }));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => worker.StartAsync(cts.Token));
+
+        provider.Verify(
+            p => p.UnloadModelAsync(model, It.Is<CancellationToken>(token => !token.IsCancellationRequested)),
+            Times.Once);
     }
 
     [Fact]
@@ -423,7 +492,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
 
         provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>()))
             .ReturnsAsync(model);
-        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ReturnsAsync(new InferenceResult("warmed", 5, 6, 11));
         provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -443,8 +512,8 @@ public sealed partial class QueuedInferenceCoordinatorTests
         Assert.Contains(logger.Messages, message => message.Contains("configured_runtime_context_size=32", StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains("effective_runtime_context_size=32", StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains("Runtime capabilities for model public-model", StringComparison.Ordinal));
-        Assert.Contains(logger.Messages, message => message.Contains("structured_output", StringComparison.Ordinal) && message.Contains("not implemented", StringComparison.Ordinal));
-        Assert.Contains(logger.Messages, message => message.Contains("json_object_output", StringComparison.Ordinal) && message.Contains("not implemented", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages, message => message.Contains("structured_output", StringComparison.Ordinal) && message.Contains("unavailable", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages, message => message.Contains("json_output", StringComparison.Ordinal) && message.Contains("unavailable", StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains("speculative_decoding", StringComparison.Ordinal) && message.Contains("not implemented", StringComparison.Ordinal));
 
         await worker.StopAsync(CancellationToken.None);
@@ -460,7 +529,7 @@ public sealed partial class QueuedInferenceCoordinatorTests
 
         provider.Setup(p => p.LoadModelAsync("/tmp/models/fallback.gguf", It.IsAny<CancellationToken>()))
             .ReturnsAsync(model);
-        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>()))
+        provider.Setup(p => p.InferAsync(model, "Hello", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text))
             .ReturnsAsync(new InferenceResult("warmed", 5, 6, 11));
         provider.Setup(p => p.UnloadModelAsync(model, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);

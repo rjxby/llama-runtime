@@ -40,19 +40,27 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 .Returns(new LlamaRuntime.Native.Contracts.NativeContextMetadata(32));
             nativeMock.Setup(x => x.CountTokens(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
                 .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) => prompt.Length);
-            nativeMock.Setup(x => x.Infer(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(), Moq.It.IsAny<string>()))
-                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string>((_, prompt) =>
+            nativeMock.Setup(x => x.Infer(
+                    Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(),
+                    Moq.It.IsAny<string>(),
+                    Moq.It.IsAny<LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat>(),
+                    Moq.It.IsAny<string?>()))
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string, LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat, string?>((_, prompt, responseFormat, _) =>
                 {
                     if (prompt.Length > 24)
                     {
                         throw new LlamaRuntime.Native.Contracts.NativeInvalidArgumentException("too long");
                     }
 
+                    var content = responseFormat == LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat.Grammar
+                        ? """{"ok":true}"""
+                        : "mocked response";
+
                     return new LlamaRuntime.Native.Contracts.NativeInferenceResult(
-                        "mocked response",
+                        content,
                         prompt.Length,
-                        "mocked response".Length,
-                        prompt.Length + "mocked response".Length);
+                        content.Length,
+                        prompt.Length + content.Length);
                 });
 
             services.RemoveAll<LlamaRuntime.Native.Contracts.ILlamaNative>();

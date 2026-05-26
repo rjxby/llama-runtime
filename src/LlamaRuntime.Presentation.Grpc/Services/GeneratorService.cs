@@ -13,7 +13,7 @@ namespace LlamaRuntime.Presentation.Grpc.Services;
 public sealed class GeneratorService : Generator.GeneratorBase
 {
     private const string TextResponseFormat = "text";
-    private const string JsonObjectResponseFormat = "json_object";
+    private const string JsonResponseFormat = "json";
     private const float DefaultTemperature = 0.0f;
     private const float DefaultTopP = 1.0f;
 
@@ -41,9 +41,14 @@ public sealed class GeneratorService : Generator.GeneratorBase
         try
         {
             var runtime = EnsureRuntimeLoaded();
-            ValidateGenerateRequest(request, runtime);
+            var responseFormat = ValidateGenerateRequest(request, runtime);
+            var jsonSchema = responseFormat == InferenceResponseFormat.Json
+                ? request.ResponseFormat!.JsonSchema
+                : null;
 
-            var inference = await _inferenceCoordinator.InferAsync(request.Prompt, context.CancellationToken, request.RequestId).ConfigureAwait(false);
+            var inference = await _inferenceCoordinator
+                .InferAsync(request.Prompt, context.CancellationToken, request.RequestId, responseFormat, jsonSchema)
+                .ConfigureAwait(false);
 
             return new GenerateReply
             {
@@ -58,8 +63,8 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 },
                 RuntimeTrace = new RuntimeTrace
                 {
-                    StructuredOutputApplied = false,
-                    StructuredOutputSatisfied = false,
+                    StructuredOutputApplied = responseFormat == InferenceResponseFormat.Json,
+                    StructuredOutputSatisfied = responseFormat == InferenceResponseFormat.Json,
                     SpeculativeDecodingUsed = false
                 }
             };
@@ -128,7 +133,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 ModelId = capabilities.PublicModelId,
                 ContextSize = capabilities.EffectiveContextSize,
                 SupportsStructuredOutput = capabilities.StructuredOutput.IsSupported,
-                SupportsJsonObjectOutput = capabilities.JsonObjectOutput.IsSupported,
+                SupportsJsonOutput = capabilities.JsonOutput.IsSupported,
                 SupportsSpeculativeDecoding = capabilities.SpeculativeDecoding.IsSupported,
                 TokenizerFamily = capabilities.TokenizerFamily
             });
@@ -143,7 +148,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         }
     }
 
-    private void ValidateGenerateRequest(GenerateRequest request, HostedRuntimeInfo runtimeInfo)
+    private InferenceResponseFormat ValidateGenerateRequest(GenerateRequest request, HostedRuntimeInfo runtimeInfo)
     {
         if (string.IsNullOrWhiteSpace(request.RequestId))
         {
@@ -158,21 +163,47 @@ public sealed class GeneratorService : Generator.GeneratorBase
         var responseFormat = request.ResponseFormat?.Type?.Trim();
         if (string.IsNullOrEmpty(responseFormat) || string.Equals(responseFormat, TextResponseFormat, StringComparison.Ordinal))
         {
+            if (!string.IsNullOrWhiteSpace(request.ResponseFormat?.JsonSchema))
+            {
+                throw CreateRpcException(
+                    RuntimeErrorMetadata.InvalidArgumentCode,
+                    "ResponseFormat.JsonSchema is only valid when ResponseFormat.Type is 'json'.",
+                    StatusCode.InvalidArgument);
+            }
+
             ValidateGenerationOptions(request.Generation, runtimeInfo);
-            return;
+            return InferenceResponseFormat.Text;
         }
 
-        if (string.Equals(responseFormat, JsonObjectResponseFormat, StringComparison.Ordinal))
+        if (string.Equals(responseFormat, JsonResponseFormat, StringComparison.Ordinal))
         {
-            throw CreateRpcException(
-                RuntimeErrorMetadata.UnsupportedResponseFormatCode,
-                "Structured JSON object output is not supported by this runtime yet.",
-                StatusCode.InvalidArgument);
+            if (!runtimeInfo.JsonOutput.IsSupported)
+            {
+                throw CreateRpcException(
+                    RuntimeErrorMetadata.UnsupportedResponseFormatCode,
+                    runtimeInfo.JsonOutput.Diagnostic,
+                    StatusCode.InvalidArgument);
+            }
+
+            try
+            {
+                JsonStructuredOutput.ValidateSchema(request.ResponseFormat?.JsonSchema);
+            }
+            catch (ArgumentException ex)
+            {
+                throw CreateRpcException(
+                    RuntimeErrorMetadata.InvalidArgumentCode,
+                    ex.Message,
+                    StatusCode.InvalidArgument);
+            }
+
+            ValidateGenerationOptions(request.Generation, runtimeInfo);
+            return InferenceResponseFormat.Json;
         }
 
         throw CreateRpcException(
             RuntimeErrorMetadata.InvalidArgumentCode,
-            $"ResponseFormat.Type must be one of '{TextResponseFormat}' or '{JsonObjectResponseFormat}'.",
+            $"ResponseFormat.Type must be one of '{TextResponseFormat}' or '{JsonResponseFormat}'.",
             StatusCode.InvalidArgument);
     }
 
@@ -260,6 +291,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
             InferenceQueueRejectedException ex => CreateRpcException(RuntimeErrorMetadata.QueueRejectedCode, ex.Message, StatusCode.ResourceExhausted),
             ModelNotFoundException ex => CreateRpcException(RuntimeErrorMetadata.ModelUnavailableCode, ex.Message, StatusCode.Unavailable),
             EmptyInferenceOutputException ex => CreateRpcException(RuntimeErrorMetadata.InferenceFailedCode, ex.Message, StatusCode.Internal),
+            StructuredOutputException ex => CreateRpcException(RuntimeErrorMetadata.StructuredOutputFailedCode, ex.Message, StatusCode.Internal),
             InferenceException ex => CreateRpcException(RuntimeErrorMetadata.InferenceFailedCode, ex.Message, StatusCode.Internal),
             _ => CreateRpcException(RuntimeErrorMetadata.InferenceFailedCode, "Unexpected server error", StatusCode.Internal)
         };

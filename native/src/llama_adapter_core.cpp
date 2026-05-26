@@ -1,4 +1,5 @@
 #include "llama_adapter_core.h"
+#include "llama_adapter_structured_output.h"
 #include "llama-cpp.h"
 
 #include <algorithm>
@@ -19,7 +20,11 @@ Error Model::load(const char *path) {
   try {
     llama_model_params p = llama_model_default_params();
     model_ = llama_model_load_from_file(path, p);
-    return model_ ? Error::OK : Error::LOAD_MODEL;
+    if (!model_) {
+      return Error::LOAD_MODEL;
+    }
+
+    return Error::OK;
   } catch (const std::bad_alloc &) {
     return Error::OUT_OF_MEMORY;
   } catch (...) {
@@ -95,7 +100,8 @@ void Context::free() {
 
 void Context::reset() {
   if (ctx_) {
-    llama_memory_clear(llama_get_memory(ctx_), true);
+    llama_memory_t memory = llama_get_memory(ctx_);
+    llama_memory_clear(memory, true);
   }
   n_past_ = 0;
 }
@@ -104,16 +110,16 @@ bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
   if (!model_ref_ || !model_ref_->handle() || !prompt)
     return false;
 
-  const auto prompt_len = static_cast<int>(std::strlen(prompt));
-  const int max_t = std::max(ctx_n_ctx_, prompt_len + 8);
+  const auto prompt_len = static_cast<int32_t>(std::strlen(prompt));
+  const int max_t = std::max(ctx_n_ctx_, static_cast<int>(prompt_len) + 8);
   tokens.resize(max_t);
 
   const llama_vocab *vocab = model_ref_->vocab();
   if (!vocab)
     return false;
 
-  int32_t n = llama_tokenize(vocab, prompt, (int32_t)std::strlen(prompt),
-                             tokens.data(), max_t, true, false);
+  int32_t n = llama_tokenize(vocab, prompt, prompt_len, tokens.data(), max_t,
+                             true, false);
 
   if (n < 0 || n == max_t)
     return false;
@@ -177,7 +183,8 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
 }
 
 bool Context::sample_token(
-    llama_sampler *sampler, llama_token &token,
+    llama_sampler *sampler, llama_sampler *grammar_sampler,
+    llama_token &token,
     std::vector<llama_token> &generated_tokens) {
   if (!ctx_ || !model_ref_ || !model_ref_->handle())
     return false;
@@ -187,12 +194,50 @@ bool Context::sample_token(
     return false;
 
   const llama_token eos = llama_vocab_eos(vocab);
-  token = llama_sampler_sample(sampler, ctx_, -1);
-  if (token == eos)
+
+  if (!grammar_sampler) {
+    token = llama_sampler_sample(sampler, ctx_, -1);
+    if (token == eos || llama_vocab_is_eog(vocab, token))
+      return true;
+
+    generated_tokens.push_back(token);
+
+    llama_sampler_accept(sampler, token);
+    llama_batch single = llama_batch_get_one(&token, 1);
+    if (llama_decode(ctx_, single) < 0)
+      return false;
+    n_past_++;
+
+    return true;
+  }
+
+  const float *logits = llama_get_logits_ith(ctx_, -1);
+  if (!logits)
+    return false;
+
+  const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+  sample_candidates_.resize(static_cast<size_t>(n_vocab));
+  for (llama_token token_id = 0; token_id < n_vocab; ++token_id) {
+    sample_candidates_[static_cast<size_t>(token_id)] =
+        llama_token_data{token_id, logits[token_id], 0.0f};
+  }
+
+  llama_token_data_array candidates{
+      sample_candidates_.data(), sample_candidates_.size(), -1, false};
+
+  llama_sampler_apply(grammar_sampler, &candidates);
+  llama_sampler_apply(sampler, &candidates);
+  if (candidates.selected < 0 ||
+      static_cast<size_t>(candidates.selected) >= candidates.size)
+    return false;
+
+  token = candidates.data[candidates.selected].id;
+  if (token == eos || llama_vocab_is_eog(vocab, token))
     return true;
 
   generated_tokens.push_back(token);
 
+  llama_sampler_accept(grammar_sampler, token);
   llama_sampler_accept(sampler, token);
   llama_batch single = llama_batch_get_one(&token, 1);
   if (llama_decode(ctx_, single) < 0)
@@ -212,18 +257,35 @@ bool Context::generate_tokens(
   if (!sampler)
     return false;
 
-  const float temperature = params.temperature > 0.0f ? params.temperature : 0.0f;
-  const float top_p = (params.top_p > 0.0f && params.top_p <= 1.0f) ? params.top_p : 1.0f;
+  llama_sampler *grammar_sampler_raw = nullptr;
+  if (!create_structured_output_sampler(
+          &grammar_sampler_raw, model_ref_->vocab(), params.response_format,
+          params.grammar.c_str()))
+    return false;
+  llama_sampler_ptr grammar_sampler(grammar_sampler_raw);
+
+  const float temperature =
+      params.temperature > 0.0f ? params.temperature : 0.0f;
+  const float top_p =
+      (params.top_p > 0.0f && params.top_p <= 1.0f) ? params.top_p : 1.0f;
+  const llama_vocab *vocab = model_ref_->vocab();
+  if (!vocab)
+    return false;
 
   if (temperature > 0.0f) {
-    llama_sampler_chain_add(sampler.get(), llama_sampler_init_top_k(40));
+    llama_sampler *top_k_sampler = llama_sampler_init_top_k(40);
+    llama_sampler_chain_add(sampler.get(), top_k_sampler);
     if (top_p < 1.0f) {
-      llama_sampler_chain_add(sampler.get(), llama_sampler_init_top_p(top_p, 1));
+      llama_sampler *top_p_sampler = llama_sampler_init_top_p(top_p, 1);
+      llama_sampler_chain_add(sampler.get(), top_p_sampler);
     }
-    llama_sampler_chain_add(sampler.get(), llama_sampler_init_temp(temperature));
-    llama_sampler_chain_add(sampler.get(), llama_sampler_init_dist(params.seed));
+    llama_sampler *temperature_sampler = llama_sampler_init_temp(temperature);
+    llama_sampler_chain_add(sampler.get(), temperature_sampler);
+    llama_sampler *dist_sampler = llama_sampler_init_dist(params.seed);
+    llama_sampler_chain_add(sampler.get(), dist_sampler);
   } else {
-    llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
+    llama_sampler *greedy_sampler = llama_sampler_init_greedy();
+    llama_sampler_chain_add(sampler.get(), greedy_sampler);
   }
 
   generated_tokens.clear();
@@ -234,9 +296,11 @@ bool Context::generate_tokens(
       break;
 
     llama_token token = LLAMA_TOKEN_NULL;
-    if (!sample_token(sampler.get(), token, generated_tokens))
+    if (!sample_token(sampler.get(), grammar_sampler.get(), token,
+                      generated_tokens))
       return false;
-    if (token == llama_vocab_eos(model_ref_->vocab()))
+    if (token == llama_vocab_eos(model_ref_->vocab()) ||
+        llama_vocab_is_eog(model_ref_->vocab(), token))
       break;
   }
 
@@ -255,9 +319,11 @@ bool Context::detokenize(
 
   std::vector<char> buffer(std::max<size_t>(64, tokens.size() * 8));
   while (true) {
+    const auto token_count = static_cast<int32_t>(tokens.size());
+    const auto buffer_size = static_cast<int32_t>(buffer.size());
     int32_t written = llama_detokenize(
-        vocab, tokens.data(), static_cast<int32_t>(tokens.size()),
-        buffer.data(), static_cast<int32_t>(buffer.size()), true, true);
+        vocab, tokens.data(), token_count, buffer.data(), buffer_size, true,
+        true);
     if (written >= 0) {
       out.assign(buffer.data(), static_cast<size_t>(written));
       return true;
