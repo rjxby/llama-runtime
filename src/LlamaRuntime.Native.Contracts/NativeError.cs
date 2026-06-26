@@ -12,5 +12,7 @@ public enum NativeError : int
     NotFound = 7,
     Io = 8,
     BufferTooSmall = 9,
+    EmptyOutput = 10,
+    Cancelled = 11,
     Unknown = 100
 }

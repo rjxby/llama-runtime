@@ -21,7 +21,7 @@ public sealed class GeneratorServiceTests
     public async Task Generate_BlankInferenceOutput_ReturnsInternalError()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "blank-output", InferenceResponseFormat.Text))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "blank-output", InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
             .ThrowsAsync(new EmptyInferenceOutputException("Inference returned blank output for a text-generation request."));
 
         var service = CreateService(coordinator);
@@ -75,10 +75,10 @@ public sealed class GeneratorServiceTests
             TestServerCallContext.Create());
 
         coordinator.Verify(
-            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-mode", InferenceResponseFormat.Json, ""),
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-mode", InferenceResponseFormat.Json, "", It.IsAny<InferenceGenerationOptions>()),
             Times.Once);
         coordinator.Verify(
-            c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text),
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text, It.IsAny<string?>(), It.IsAny<InferenceGenerationOptions>()),
             Times.Never);
     }
 
@@ -87,7 +87,7 @@ public sealed class GeneratorServiceTests
     {
         var coordinator = CreateCoordinator();
         coordinator
-            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema))
+            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema, It.IsAny<InferenceGenerationOptions>()))
             .ReturnsAsync(CreateInferenceResult("""{"title":"ok"}"""));
         var service = CreateService(coordinator);
 
@@ -108,7 +108,7 @@ public sealed class GeneratorServiceTests
         Assert.True(reply.RuntimeTrace.StructuredOutputApplied);
         Assert.True(reply.RuntimeTrace.StructuredOutputSatisfied);
         coordinator.Verify(
-            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema),
+            c => c.InferAsync("world", It.IsAny<CancellationToken>(), "schema-mode", InferenceResponseFormat.Json, ValidJsonSchema, It.IsAny<InferenceGenerationOptions>()),
             Times.Once);
     }
 
@@ -192,7 +192,7 @@ public sealed class GeneratorServiceTests
     {
         var coordinator = CreateCoordinator();
         coordinator
-            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-fail", InferenceResponseFormat.Json, ""))
+            .Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "json-fail", InferenceResponseFormat.Json, "", It.IsAny<InferenceGenerationOptions>()))
             .ThrowsAsync(new StructuredOutputException(expectedMessage));
 
         var service = CreateService(coordinator);
@@ -213,7 +213,109 @@ public sealed class GeneratorServiceTests
     }
 
     [Fact]
-    public async Task Generate_NonDefaultGenerationOverride_ReturnsUnsupportedGenerationOverridesTrailer()
+    public async Task Generate_NonDefaultTemperature_IsAcceptedAndForwarded()
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "override",
+                Prompt = "world",
+                Generation = new GenerationOptions
+                {
+                    Temperature = 0.3f,
+                    MaxOutputTokens = 6
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("mocked response", reply.Content);
+        coordinator.Verify(
+            c => c.InferAsync(
+                "world",
+                It.IsAny<CancellationToken>(),
+                "override",
+                InferenceResponseFormat.Text,
+                null,
+                It.Is<InferenceGenerationOptions>(options =>
+                    options.MaxOutputTokens == 6 &&
+                    Math.Abs(options.Temperature - 0.3f) < 0.0001f &&
+                    Math.Abs(options.TopP - 1.0f) < 0.0001f)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Generate_SampledTopP_IsAcceptedAndForwarded()
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "sampled",
+                Prompt = "world",
+                Generation = new GenerationOptions
+                {
+                    Temperature = 0.7f,
+                    TopP = 0.8f
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("mocked response", reply.Content);
+        coordinator.Verify(
+            c => c.InferAsync(
+                "world",
+                It.IsAny<CancellationToken>(),
+                "sampled",
+                InferenceResponseFormat.Text,
+                null,
+                It.Is<InferenceGenerationOptions>(options =>
+                    options.MaxOutputTokens == 8 &&
+                    Math.Abs(options.Temperature - 0.7f) < 0.0001f &&
+                    Math.Abs(options.TopP - 0.8f) < 0.0001f)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Generate_LowerMaxOutputTokens_IsAcceptedAndForwarded()
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        var reply = await service.Generate(
+            new GenerateRequest
+            {
+                RequestId = "max-output-lower",
+                Prompt = "world",
+                Generation = new GenerationOptions
+                {
+                    MaxOutputTokens = 4
+                }
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal("mocked response", reply.Content);
+        Assert.Equal("max-output-lower", reply.RequestId);
+        coordinator.Verify(
+            c => c.InferAsync(
+                "world",
+                It.IsAny<CancellationToken>(),
+                "max-output-lower",
+                InferenceResponseFormat.Text,
+                null,
+                It.Is<InferenceGenerationOptions>(options => options.MaxOutputTokens == 4)),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData(-0.1f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public async Task Generate_InvalidTemperature_ReturnsInvalidArgument(float temperature)
     {
         var service = CreateService();
 
@@ -221,43 +323,91 @@ public sealed class GeneratorServiceTests
             service.Generate(
                 new GenerateRequest
                 {
-                    RequestId = "override",
+                    RequestId = "invalid-temperature",
                     Prompt = "world",
-                    Generation = new GenerationOptions { Temperature = 0.3f }
+                    Generation = new GenerationOptions { Temperature = temperature }
                 },
                 TestServerCallContext.Create()));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RuntimeErrorMetadata.UnsupportedGenerationOverridesCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
-        Assert.Contains("generation overrides", ex.Status.Detail);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Contains("Temperature", ex.Status.Detail);
     }
 
-    [Fact]
-    public async Task Generate_MaxOutputTokensMatchingConfiguredDefault_IsAccepted()
+    [Theory]
+    [InlineData(-0.1f)]
+    [InlineData(0.0f)]
+    [InlineData(1.1f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public async Task Generate_InvalidTopP_ReturnsInvalidArgument(float topP)
     {
         var service = CreateService();
 
-        var reply = await service.Generate(
-            new GenerateRequest
-            {
-                RequestId = "max-output-default",
-                Prompt = "world",
-                Generation = new GenerationOptions
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
                 {
-                    MaxOutputTokens = 8
-                }
-            },
-            TestServerCallContext.Create());
+                    RequestId = "invalid-top-p",
+                    Prompt = "world",
+                    Generation = new GenerationOptions
+                    {
+                        Temperature = 0.7f,
+                        TopP = topP
+                    }
+                },
+                TestServerCallContext.Create()));
 
-        Assert.Equal("mocked response", reply.Content);
-        Assert.Equal("max-output-default", reply.RequestId);
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Contains("TopP", ex.Status.Detail);
+    }
+
+    [Fact]
+    public async Task Generate_NonDefaultTopPWithGreedyTemperature_ReturnsInvalidArgument()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "top-p-greedy",
+                    Prompt = "world",
+                    Generation = new GenerationOptions { TopP = 0.8f }
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Contains("Temperature", ex.Status.Detail);
+    }
+
+    [Fact]
+    public async Task Generate_MaxOutputTokensAboveConfiguredCeiling_ReturnsInvalidArgument()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest
+                {
+                    RequestId = "max-output-ceiling",
+                    Prompt = "world",
+                    Generation = new GenerationOptions { MaxOutputTokens = 9 }
+                },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Contains("configured maximum 8", ex.Status.Detail);
     }
 
     [Fact]
     public async Task Generate_AtomicInferenceFailure_ReturnsInternalErrorTrailer()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "usage-fail", InferenceResponseFormat.Text))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "usage-fail", InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
             .ThrowsAsync(new InferenceException("count failed"));
 
         var service = CreateService(coordinator);
@@ -332,7 +482,7 @@ public sealed class GeneratorServiceTests
     public async Task Generate_MaxOutputTokensValidation_UsesLoadedModelEffectiveContext()
     {
         var hostedModel = CreateHostedModel();
-        hostedModel.SetLoaded(CreateModel(contextSize: 16), "test-model");
+        hostedModel.SetLoaded(CreateModel(contextSize: 8), "test-model");
         var service = CreateService(hostedModel: hostedModel);
 
         var ex = await Assert.ThrowsAsync<RpcException>(() =>
@@ -343,13 +493,13 @@ public sealed class GeneratorServiceTests
                     Prompt = "world",
                     Generation = new GenerationOptions
                     {
-                        MaxOutputTokens = 16
+                        MaxOutputTokens = 8
                     }
                 },
                 TestServerCallContext.Create()));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Contains("effective context size 16", ex.Status.Detail);
+        Assert.Contains("effective context size 8", ex.Status.Detail);
     }
 
     [Theory]
@@ -363,7 +513,7 @@ public sealed class GeneratorServiceTests
         string expectedMessage)
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), scenario, InferenceResponseFormat.Text))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), scenario, InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
             .ThrowsAsync(scenario switch
             {
                 "prompt_budget_exceeded" => new PromptBudgetExceededException("Prompt exceeds input budget"),
@@ -409,7 +559,7 @@ public sealed class GeneratorServiceTests
     public async Task Generate_QueueRejected_ReturnsNormalizedTrailers()
     {
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "queue-rejected", InferenceResponseFormat.Text))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "queue-rejected", InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
             .ThrowsAsync(new InferenceQueueRejectedException("Inference queue is closed because the runtime is stopping."));
 
         var service = CreateService(coordinator);
@@ -432,8 +582,8 @@ public sealed class GeneratorServiceTests
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var coordinator = CreateCoordinator();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "cancelled", InferenceResponseFormat.Text, null))
-            .Returns(async (string _, CancellationToken ct, string? _, InferenceResponseFormat _, string? _) =>
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), "cancelled", InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
+            .Returns(async (string _, CancellationToken ct, string? _, InferenceResponseFormat _, string? _, InferenceGenerationOptions? _) =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
@@ -520,11 +670,11 @@ public sealed class GeneratorServiceTests
     private static Mock<IInferenceCoordinator> CreateCoordinator()
     {
         var coordinator = new Mock<IInferenceCoordinator>();
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Text, null, It.IsAny<InferenceGenerationOptions>()))
             .ReturnsAsync(CreateInferenceResult("mocked response"));
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, ""))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, "", It.IsAny<InferenceGenerationOptions>()))
             .ReturnsAsync(CreateInferenceResult("""{"ok":true}"""));
-        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, It.Is<string>(schema => !string.IsNullOrWhiteSpace(schema))))
+        coordinator.Setup(c => c.InferAsync("world", It.IsAny<CancellationToken>(), It.IsAny<string?>(), InferenceResponseFormat.Json, It.Is<string>(schema => !string.IsNullOrWhiteSpace(schema)), It.IsAny<InferenceGenerationOptions>()))
             .ReturnsAsync(CreateInferenceResult("""{"title":"ok"}"""));
         coordinator.Setup(c => c.CountTokensAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
             .ReturnsAsync((string prompt, CancellationToken _, string? _) => prompt.Length);

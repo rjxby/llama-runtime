@@ -44,8 +44,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaContextHandle>(),
                     Moq.It.IsAny<string>(),
                     Moq.It.IsAny<LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat>(),
-                    Moq.It.IsAny<string?>()))
-                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string, LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat, string?>((_, prompt, responseFormat, _) =>
+                    Moq.It.IsAny<string?>(),
+                    Moq.It.IsAny<LlamaRuntime.Native.Contracts.NativeGenerationOptions?>(),
+                    Moq.It.IsAny<CancellationToken>()))
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string, LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat, string?, LlamaRuntime.Native.Contracts.NativeGenerationOptions?, CancellationToken>((_, prompt, responseFormat, _, _, _) =>
                 {
                     if (prompt.Length > 24)
                     {

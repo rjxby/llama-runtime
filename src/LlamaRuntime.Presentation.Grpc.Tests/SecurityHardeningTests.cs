@@ -58,6 +58,38 @@ public sealed partial class SecurityHardeningTests : IClassFixture<TestWebApplic
         Assert.Contains(expectedOptionName, string.Join(Environment.NewLine, ex.Failures));
     }
 
+    [Theory]
+    [InlineData("0", "5", "00:00:01", "0", "429", nameof(RateLimiterOptions.TokenLimit))]
+    [InlineData("20", "0", "00:00:01", "0", "429", nameof(RateLimiterOptions.TokensPerPeriod))]
+    [InlineData("20", "5", "00:00:00", "0", "429", nameof(RateLimiterOptions.ReplenishmentPeriod))]
+    [InlineData("20", "5", "00:00:01", "-1", "429", nameof(RateLimiterOptions.QueueLimit))]
+    [InlineData("20", "5", "00:00:01", "0", "99", nameof(RateLimiterOptions.RejectionStatusCode))]
+    public async Task AddAppRateLimiting_InvalidOptions_FailOnStartup(
+        string tokenLimit,
+        string tokensPerPeriod,
+        string replenishmentPeriod,
+        string queueLimit,
+        string rejectionStatusCode,
+        string expectedOptionName)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["RateLimiter:TokenLimit"] = tokenLimit,
+            ["RateLimiter:TokensPerPeriod"] = tokensPerPeriod,
+            ["RateLimiter:ReplenishmentPeriod"] = replenishmentPeriod,
+            ["RateLimiter:QueueLimit"] = queueLimit,
+            ["RateLimiter:RejectionStatusCode"] = rejectionStatusCode
+        });
+        builder.Services.AddAppRateLimiting(builder.Configuration);
+
+        using var host = builder.Build();
+
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync());
+        Assert.Contains(expectedOptionName, string.Join(Environment.NewLine, ex.Failures));
+    }
+
+
     [Fact]
     public async Task LoggingInterceptor_DoesNotLogPromptOrResponsePayloads()
     {

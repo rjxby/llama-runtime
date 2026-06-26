@@ -13,6 +13,7 @@ internal sealed class ContextPool : IDisposable
     private readonly ConcurrentQueue<LlamaContextHandle> _queue = new();
     private readonly SemaphoreSlim _semaphore;
     private readonly ILogger _logger;
+    private int _contextCount;
     private bool _disposed;
 
     public ContextPool(ILlamaNative native, LlamaModelHandle modelHandle, int maxSize, ILogger logger)
@@ -34,7 +35,7 @@ internal sealed class ContextPool : IDisposable
             if (ctx == null) continue;
             if (ctx.IsInvalid)
             {
-                try { ctx.Dispose(); } catch { }
+                DisposeTrackedContext(ctx);
                 continue;
             }
 
@@ -46,19 +47,32 @@ internal sealed class ContextPool : IDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to reset pooled context. Disposing and creating new one.");
-                try { ctx.Dispose(); } catch { }
+                DisposeTrackedContext(ctx);
                 continue;
             }
         }
 
+        var reservedContextSlot = false;
         try
         {
+            ReserveContextSlot();
+            reservedContextSlot = true;
             var newCtx = _native.CreateContext(_modelHandle);
-            if (newCtx == null) throw new InvalidOperationException("native returned null context handle");
+            if (newCtx == null)
+            {
+                ReleaseContextSlot();
+                reservedContextSlot = false;
+                throw new InvalidOperationException("native returned null context handle");
+            }
             return newCtx;
         }
         catch
         {
+            if (reservedContextSlot)
+            {
+                ReleaseContextSlot();
+            }
+
             _semaphore.Release();
             throw;
         }
@@ -75,6 +89,13 @@ internal sealed class ContextPool : IDisposable
             return;
         }
 
+        if (!TryReserveContextSlot())
+        {
+            _logger.LogWarning("Discarding primed context because the context pool is already at capacity.");
+            try { ctx.Dispose(); } catch { }
+            return;
+        }
+
         _queue.Enqueue(ctx);
     }
 
@@ -84,12 +105,13 @@ internal sealed class ContextPool : IDisposable
         if (_disposed)
         {
             try { ctx.Dispose(); } catch { }
+            ReleaseContextSlot();
             return;
         }
 
         if (ctx.IsInvalid)
         {
-            try { ctx.Dispose(); } catch { }
+            DisposeTrackedContext(ctx);
             _semaphore.Release();
             return;
         }
@@ -103,6 +125,39 @@ internal sealed class ContextPool : IDisposable
         if (_disposed) throw new ObjectDisposedException(nameof(ContextPool));
     }
 
+    private bool TryReserveContextSlot()
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _contextCount);
+            if (current >= _maxSize)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref _contextCount, current + 1, current) == current)
+            {
+                return true;
+            }
+        }
+    }
+
+    private void ReserveContextSlot()
+    {
+        if (!TryReserveContextSlot())
+        {
+            throw new InvalidOperationException("Context pool is at capacity but no reusable context was available.");
+        }
+    }
+
+    private void ReleaseContextSlot() => Interlocked.Decrement(ref _contextCount);
+
+    private void DisposeTrackedContext(LlamaContextHandle ctx)
+    {
+        try { ctx.Dispose(); } catch { }
+        ReleaseContextSlot();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -110,7 +165,7 @@ internal sealed class ContextPool : IDisposable
 
         while (_queue.TryDequeue(out var ctx))
         {
-            try { ctx.Dispose(); } catch { }
+            DisposeTrackedContext(ctx);
         }
 
         _semaphore.Dispose();

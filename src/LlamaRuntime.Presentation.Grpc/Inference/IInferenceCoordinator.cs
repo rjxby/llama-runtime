@@ -9,7 +9,8 @@ public interface IInferenceCoordinator
         CancellationToken cancellationToken,
         string? requestId = null,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null);
+        string? jsonSchema = null,
+        InferenceGenerationOptions? generationOptions = null);
 
     Task<int> CountTokensAsync(string prompt, CancellationToken cancellationToken, string? requestId = null);
 }

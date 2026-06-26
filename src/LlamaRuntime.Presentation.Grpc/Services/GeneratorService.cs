@@ -41,13 +41,13 @@ public sealed class GeneratorService : Generator.GeneratorBase
         try
         {
             var runtime = EnsureRuntimeLoaded();
-            var responseFormat = ValidateGenerateRequest(request, runtime);
+            var (responseFormat, generationOptions) = ValidateGenerateRequest(request, runtime);
             var jsonSchema = responseFormat == InferenceResponseFormat.Json
                 ? request.ResponseFormat!.JsonSchema
                 : null;
 
             var inference = await _inferenceCoordinator
-                .InferAsync(request.Prompt, context.CancellationToken, request.RequestId, responseFormat, jsonSchema)
+                .InferAsync(request.Prompt, context.CancellationToken, request.RequestId, responseFormat, jsonSchema, generationOptions)
                 .ConfigureAwait(false);
 
             return new GenerateReply
@@ -148,7 +148,9 @@ public sealed class GeneratorService : Generator.GeneratorBase
         }
     }
 
-    private InferenceResponseFormat ValidateGenerateRequest(GenerateRequest request, HostedRuntimeInfo runtimeInfo)
+    private (InferenceResponseFormat ResponseFormat, InferenceGenerationOptions GenerationOptions) ValidateGenerateRequest(
+        GenerateRequest request,
+        HostedRuntimeInfo runtimeInfo)
     {
         if (string.IsNullOrWhiteSpace(request.RequestId))
         {
@@ -171,8 +173,8 @@ public sealed class GeneratorService : Generator.GeneratorBase
                     StatusCode.InvalidArgument);
             }
 
-            ValidateGenerationOptions(request.Generation, runtimeInfo);
-            return InferenceResponseFormat.Text;
+            var generationOptions = ValidateGenerationOptions(request.Generation, runtimeInfo);
+            return (InferenceResponseFormat.Text, generationOptions);
         }
 
         if (string.Equals(responseFormat, JsonResponseFormat, StringComparison.Ordinal))
@@ -197,8 +199,8 @@ public sealed class GeneratorService : Generator.GeneratorBase
                     StatusCode.InvalidArgument);
             }
 
-            ValidateGenerationOptions(request.Generation, runtimeInfo);
-            return InferenceResponseFormat.Json;
+            var generationOptions = ValidateGenerationOptions(request.Generation, runtimeInfo);
+            return (InferenceResponseFormat.Json, generationOptions);
         }
 
         throw CreateRpcException(
@@ -207,30 +209,57 @@ public sealed class GeneratorService : Generator.GeneratorBase
             StatusCode.InvalidArgument);
     }
 
-    private void ValidateGenerationOptions(GenerationOptions? generationOptions, HostedRuntimeInfo runtimeInfo)
+    private InferenceGenerationOptions ValidateGenerationOptions(GenerationOptions? generationOptions, HostedRuntimeInfo runtimeInfo)
     {
+        var maxOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
+        var temperature = DefaultTemperature;
+        var topP = DefaultTopP;
+
         if (generationOptions is null)
         {
-            return;
+            return new InferenceGenerationOptions(maxOutputTokens, temperature, topP);
         }
 
-        if (generationOptions.HasTemperature && generationOptions.Temperature < 0.0f)
+        if (generationOptions.HasTemperature)
+        {
+            temperature = generationOptions.Temperature;
+        }
+
+        if (generationOptions.HasTopP)
+        {
+            topP = generationOptions.TopP;
+        }
+
+        if (generationOptions.HasMaxOutputTokens)
+        {
+            maxOutputTokens = generationOptions.MaxOutputTokens;
+        }
+
+        if (!float.IsFinite(temperature) || temperature < 0.0f)
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.Temperature must be greater than or equal to 0.",
+                "Generation.Temperature must be finite and greater than or equal to 0.",
                 StatusCode.InvalidArgument);
         }
 
-        if (generationOptions.HasTopP && (generationOptions.TopP <= 0.0f || generationOptions.TopP > 1.0f))
+        if (!float.IsFinite(topP) || topP <= 0.0f || topP > 1.0f)
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.TopP must be greater than 0 and less than or equal to 1.",
+                "Generation.TopP must be finite, greater than 0, and less than or equal to 1.",
                 StatusCode.InvalidArgument);
         }
 
-        if (generationOptions.HasMaxOutputTokens && generationOptions.MaxOutputTokens <= 0)
+        if (!AreClose(topP, DefaultTopP) && temperature <= 0.0f)
+        {
+            throw CreateRpcException(
+                RuntimeErrorMetadata.InvalidArgumentCode,
+                "Generation.TopP requires Generation.Temperature to be greater than 0.",
+                StatusCode.InvalidArgument);
+        }
+
+        if (maxOutputTokens <= 0)
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -238,9 +267,18 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
+        var configuredMaxOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
+        if (maxOutputTokens > configuredMaxOutputTokens)
+        {
+            throw CreateRpcException(
+                RuntimeErrorMetadata.InvalidArgumentCode,
+                $"Generation.MaxOutputTokens must be less than or equal to configured maximum {configuredMaxOutputTokens}.",
+                StatusCode.InvalidArgument);
+        }
+
         var effectiveContextSize = runtimeInfo.EffectiveContextSize;
 
-        if (generationOptions.HasMaxOutputTokens && generationOptions.MaxOutputTokens >= effectiveContextSize)
+        if (maxOutputTokens >= effectiveContextSize)
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -248,19 +286,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
-        var usesNonDefaultTemperature = generationOptions.HasTemperature && !AreClose(generationOptions.Temperature, DefaultTemperature);
-        var usesNonDefaultTopP = generationOptions.HasTopP && !AreClose(generationOptions.TopP, DefaultTopP);
-        var usesNonDefaultMaxOutputTokens =
-            generationOptions.HasMaxOutputTokens &&
-            generationOptions.MaxOutputTokens != _nativeOptions.GenerationMaxNewTokens;
-
-        if (usesNonDefaultTemperature || usesNonDefaultTopP || usesNonDefaultMaxOutputTokens)
-        {
-            throw CreateRpcException(
-                RuntimeErrorMetadata.UnsupportedGenerationOverridesCode,
-                "Request-level generation overrides are not supported by this runtime yet. Omit Generation to use runtime defaults.",
-                StatusCode.InvalidArgument);
-        }
+        return new InferenceGenerationOptions(maxOutputTokens, temperature, topP);
     }
 
     private HostedRuntimeInfo EnsureRuntimeLoaded()

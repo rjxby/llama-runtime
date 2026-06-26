@@ -18,10 +18,11 @@ public sealed class QueuedInferenceCoordinator : IInferenceCoordinator
         CancellationToken cancellationToken,
         string? requestId = null,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null) =>
+        string? jsonSchema = null,
+        InferenceGenerationOptions? generationOptions = null) =>
         _queue.EnqueueAsync(
             InferenceWorkQueue.InferenceOperation.Infer,
-            (model, ct) => _provider.InferAsync(model, prompt, ct, responseFormat, jsonSchema),
+            (model, ct) => _provider.InferAsync(model, prompt, ct, responseFormat, jsonSchema, generationOptions),
             cancellationToken,
             requestId);
 

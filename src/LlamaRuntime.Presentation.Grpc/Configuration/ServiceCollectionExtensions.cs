@@ -64,6 +64,15 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddAppRateLimiting(this IServiceCollection services, IConfiguration config)
     {
+        services.AddOptions<RateLimiterOptions>()
+                .BindConfiguration(RateLimiterOptions.SectionName)
+                .Validate(o => o.TokenLimit > 0, $"{nameof(RateLimiterOptions.TokenLimit)} must be greater than zero")
+                .Validate(o => o.TokensPerPeriod > 0, $"{nameof(RateLimiterOptions.TokensPerPeriod)} must be greater than zero")
+                .Validate(o => o.ReplenishmentPeriod > TimeSpan.Zero, $"{nameof(RateLimiterOptions.ReplenishmentPeriod)} must be greater than zero")
+                .Validate(o => o.QueueLimit >= 0, $"{nameof(RateLimiterOptions.QueueLimit)} must be greater than or equal to zero")
+                .Validate(o => o.RejectionStatusCode is >= 100 and <= 599, $"{nameof(RateLimiterOptions.RejectionStatusCode)} must be a valid HTTP status code")
+                .ValidateOnStart();
+
         var rateLimiterOptions = config.GetSection(RateLimiterOptions.SectionName).Get<RateLimiterOptions>() ?? new RateLimiterOptions();
         services.AddRateLimiter(options =>
         {

@@ -35,7 +35,7 @@ A native-first, single-model, **gRPC-based LLM inference runtime** built on top 
 
 This runtime is optimized for predictable serving: bounded queueing, pooled contexts, explicit readiness, and a small serving surface. The public gRPC contract is `llama.v2`, which includes `Generate`, `EstimateTokens`, and `GetCapabilities`.
 
-The current runtime keeps request-level generation behavior narrow: it uses greedy defaults, rejects non-default `temperature` and `top_p`, and treats `max_output_tokens` as a placeholder compatibility field that is accepted only when it matches configured `Llama:Native:GenerationMaxNewTokens`.
+The current runtime supports request-level generation controls for `temperature`, `top_p`, and `max_output_tokens`. Omitted requests use greedy defaults (`temperature = 0`, `top_p = 1`) and the configured `Llama:Native:GenerationMaxNewTokens`; request `max_output_tokens` may lower that value but cannot exceed the configured operator ceiling.
 
 ---
 
@@ -282,6 +282,8 @@ Llama__Native__GenerationMaxNewTokens=1..16384 and < ContextSize
 Llama__Native__InferenceBufferSize=1..16777216
 ```
 
+`GenerationMaxNewTokens` is both the default output-token reservation and the maximum accepted request-level `generation.max_output_tokens`. Requests may set a lower `max_output_tokens`; `temperature` must be finite and non-negative; `top_p` must be finite, greater than 0, and less than or equal to 1. Non-default `top_p` requires `temperature > 0` because top-p sampling does not affect greedy decoding.
+
 ---
 
 ## Troubleshooting & tips
@@ -315,4 +317,4 @@ Third-party notices:
 * **First-class .NET support** — native integration with ASP.NET Core.
 * **Stable inference on limited resources** — bounded queueing and worker limits keep concurrency explicit.
 
-This runtime is intentionally narrow: one hosted model, gRPC only, greedy generation, and explicit operational limits.
+This runtime is intentionally narrow: one hosted model, gRPC only, bounded request-level generation controls, and explicit operational limits.

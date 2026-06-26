@@ -23,5 +23,7 @@ public interface ILlamaNative : IDisposable
         LlamaContextHandle ctx,
         string prompt,
         NativeInferenceResponseFormat responseFormat = NativeInferenceResponseFormat.Text,
-        string? grammar = null);
+        string? grammar = null,
+        NativeGenerationOptions? generationOptions = null,
+        CancellationToken cancellationToken = default);
 }

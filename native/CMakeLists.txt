@@ -12,6 +12,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+include(FetchContent)
+
 # -------------------------------------------------------------------
 # REQUIRED BUILD-TIME PARAMETERS
 # -------------------------------------------------------------------
@@ -115,6 +117,14 @@ add_custom_command(TARGET llama_adapter POST_BUILD
 # -------------------------------------------------------------------
 # Integration test
 # -------------------------------------------------------------------
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 add_executable(integration_test
     ../tests/integration_test.cpp
 )
@@ -122,6 +132,7 @@ add_executable(integration_test
 target_link_libraries(integration_test
     PRIVATE
         llama_adapter
+        nlohmann_json::nlohmann_json
 )
 
 if (APPLE)

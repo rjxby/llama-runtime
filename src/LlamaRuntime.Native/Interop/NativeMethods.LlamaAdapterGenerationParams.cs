@@ -13,5 +13,11 @@ internal static partial class NativeMethods
         public uint Seed;
         public int ResponseFormat;
         public IntPtr Grammar;
+        public AbortCallback? AbortCallback;
+        public IntPtr AbortCallbackData;
     }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    internal delegate bool AbortCallback(IntPtr data);
 }

@@ -10,6 +10,8 @@ namespace LlamaRuntime.Native;
 
 public sealed class LlamaNative : ILlamaNative
 {
+    private static readonly NativeMethods.AbortCallback AbortCallback = IsCancellationRequested;
+
     private readonly ILogger<LlamaNative> _logger;
     private readonly NativeLoader _loader;
     private readonly LlamaNativeOptions _options;
@@ -126,13 +128,19 @@ public sealed class LlamaNative : ILlamaNative
         LlamaContextHandle ctx,
         string prompt,
         NativeInferenceResponseFormat responseFormat = NativeInferenceResponseFormat.Text,
-        string? grammar = null)
+        string? grammar = null,
+        NativeGenerationOptions? generationOptions = null,
+        CancellationToken cancellationToken = default)
     {
         EnsureNotDisposed();
         if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
         if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
+        cancellationToken.ThrowIfCancellationRequested();
+        generationOptions ??= CreateDefaultGenerationOptions();
+        ValidateGenerationOptions(generationOptions);
 
         var grammarPtr = IntPtr.Zero;
+        GCHandle cancellationHandle = default;
         try
         {
             if (!string.IsNullOrEmpty(grammar))
@@ -140,15 +148,24 @@ public sealed class LlamaNative : ILlamaNative
                 grammarPtr = Marshal.StringToHGlobalAnsi(grammar);
             }
 
+            var cancellationData = IntPtr.Zero;
+            if (cancellationToken.CanBeCanceled)
+            {
+                cancellationHandle = GCHandle.Alloc(new NativeCancellationState(cancellationToken));
+                cancellationData = GCHandle.ToIntPtr(cancellationHandle);
+            }
+
             var nativeResponseFormat = (int)responseFormat;
             var parameters = new NativeMethods.LlamaAdapterGenerationParams
             {
-                MaxNewTokens = _options.GenerationMaxNewTokens,
-                Temperature = 0.0f,
-                TopP = 1.0f,
+                MaxNewTokens = generationOptions.MaxNewTokens,
+                Temperature = generationOptions.Temperature,
+                TopP = generationOptions.TopP,
                 Seed = uint.MaxValue,
                 ResponseFormat = nativeResponseFormat,
-                Grammar = grammarPtr
+                Grammar = grammarPtr,
+                AbortCallback = cancellationToken.CanBeCanceled ? AbortCallback : null,
+                AbortCallbackData = cancellationData
             };
             var sb = new StringBuilder(_options.InferenceBufferSize);
             var bufferSize = (UIntPtr)sb.Capacity;
@@ -159,6 +176,11 @@ public sealed class LlamaNative : ILlamaNative
                 sb,
                 bufferSize,
                 out var result);
+
+            if (rc == (int)NativeError.Cancelled && cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             ThrowIfError(rc, "Infer");
             return new NativeInferenceResult(
@@ -173,8 +195,65 @@ public sealed class LlamaNative : ILlamaNative
             {
                 Marshal.FreeHGlobal(grammarPtr);
             }
+
+            if (cancellationHandle.IsAllocated)
+            {
+                cancellationHandle.Free();
+            }
         }
     }
+
+    private NativeGenerationOptions CreateDefaultGenerationOptions() =>
+        new(
+            Math.Max(1, _options.GenerationMaxNewTokens),
+            0.0f,
+            1.0f);
+
+    private sealed class NativeCancellationState
+    {
+        public NativeCancellationState(CancellationToken cancellationToken)
+        {
+            CancellationToken = cancellationToken;
+        }
+
+        public CancellationToken CancellationToken { get; }
+    }
+
+    private static bool IsCancellationRequested(IntPtr data)
+    {
+        if (data == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var handle = GCHandle.FromIntPtr(data);
+        return handle.Target is NativeCancellationState state && state.CancellationToken.IsCancellationRequested;
+    }
+
+    private static void ValidateGenerationOptions(NativeGenerationOptions generationOptions)
+    {
+        if (generationOptions.MaxNewTokens <= 0)
+        {
+            throw new NativeInvalidArgumentException("Generation MaxNewTokens must be greater than 0.");
+        }
+
+        if (!float.IsFinite(generationOptions.Temperature) || generationOptions.Temperature < 0.0f)
+        {
+            throw new NativeInvalidArgumentException("Generation Temperature must be finite and greater than or equal to 0.");
+        }
+
+        if (!float.IsFinite(generationOptions.TopP) || generationOptions.TopP <= 0.0f || generationOptions.TopP > 1.0f)
+        {
+            throw new NativeInvalidArgumentException("Generation TopP must be finite, greater than 0, and less than or equal to 1.");
+        }
+
+        if (!AreClose(generationOptions.TopP, 1.0f) && generationOptions.Temperature <= 0.0f)
+        {
+            throw new NativeInvalidArgumentException("Generation TopP requires Temperature to be greater than 0.");
+        }
+    }
+
+    private static bool AreClose(float left, float right) => Math.Abs(left - right) < 0.0001f;
 
     private static void ThrowIfError(int code, string op)
     {
@@ -192,6 +271,8 @@ public sealed class LlamaNative : ILlamaNative
             case NativeError.NotFound: throw new NativeNotFoundException(msg);
             case NativeError.Io: throw new NativeIOException(msg);
             case NativeError.BufferTooSmall: throw new NativeBufferTooSmallException(msg);
+            case NativeError.EmptyOutput: throw new NativeEmptyOutputException(msg);
+            case NativeError.Cancelled: throw new NativeCancelledException(msg);
             default: throw new NativeUnknownException(msg);
         }
     }

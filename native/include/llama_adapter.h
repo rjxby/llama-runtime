@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +32,8 @@ typedef enum {
   LLAMA_ADAPTER_ERR_NOT_FOUND = 7,
   LLAMA_ADAPTER_ERR_IO = 8,
   LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL = 9,
+  LLAMA_ADAPTER_ERR_EMPTY_OUTPUT = 10,
+  LLAMA_ADAPTER_ERR_CANCELLED = 11,
   LLAMA_ADAPTER_ERR_UNKNOWN = 100
 } llama_adapter_error_t;
 
@@ -37,6 +42,8 @@ typedef enum {
   LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR = 1
 } llama_adapter_response_format_t;
 
+typedef bool (*llama_adapter_abort_callback_t)(void *data);
+
 typedef struct {
   int32_t max_new_tokens;
   float temperature;
@@ -44,6 +51,8 @@ typedef struct {
   uint32_t seed;
   int32_t response_format;
   const char *grammar;
+  llama_adapter_abort_callback_t abort_callback;
+  void *abort_callback_data;
 } llama_adapter_generation_params_t;
 
 typedef struct {

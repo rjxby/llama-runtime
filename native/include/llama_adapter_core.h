@@ -16,6 +16,8 @@ enum class Error {
   OUT_OF_MEMORY,
   IO,
   BUFFER_TOO_SMALL,
+  EMPTY_OUTPUT,
+  ABORTED,
   UNKNOWN,
 };
 
@@ -27,6 +29,8 @@ struct GenParams {
   llama_adapter_response_format_t response_format =
       LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT;
   std::string grammar;
+  llama_adapter_abort_callback_t abort_callback = nullptr;
+  void *abort_callback_data = nullptr;
 };
 
 class Model {
@@ -59,6 +63,8 @@ public:
   bool tokenize(const char *prompt, std::vector<llama_token> &tokens);
   Error count_tokens(const char *prompt, int32_t *token_count);
   bool decode(const std::vector<llama_token> &tokens);
+  bool invoke_abort_callback();
+  bool is_abort_requested() const;
   bool sample_token(
       llama_sampler *sampler, llama_sampler *grammar_sampler,
       llama_token &token,
@@ -83,6 +89,9 @@ private:
   int ctx_n_batch_ = 0;
   int generation_max_new_tokens_ = 128;
   int n_past_ = 0;
+  bool abort_requested_ = false;
+  llama_adapter_abort_callback_t abort_callback_ = nullptr;
+  void *abort_callback_data_ = nullptr;
 };
 
 const char *source_version() noexcept;

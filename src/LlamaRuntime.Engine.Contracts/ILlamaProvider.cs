@@ -13,5 +13,6 @@ public interface ILlamaProvider : IDisposable
         string prompt,
         CancellationToken cancellationToken = default,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null);
+        string? jsonSchema = null,
+        InferenceGenerationOptions? generationOptions = null);
 }

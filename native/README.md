@@ -45,7 +45,7 @@ A small C++ utility wrapper that:
 - creates a context
 - tokenizes
 - feeds tokens via `llama_decode`
-- performs greedy generation
+- performs generation with per-call sampling parameters
 - exposes a safe `infer(prompt → text)` workflow
 
 This keeps all llama.cpp interactions localized and readable.
@@ -160,6 +160,8 @@ int llama_infer(
 - tokenizes prompt
 - decodes prompt
 - samples continuation through llama.cpp sampler APIs
+- applies `params->max_new_tokens`, `params->temperature`, and `params->top_p`
+  as per-call generation controls
 - applies grammar sampling when `params->response_format` is
   `LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR` and `params->grammar` contains a
   ready-made GBNF grammar
