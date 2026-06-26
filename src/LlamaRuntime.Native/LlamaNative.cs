@@ -206,8 +206,8 @@ public sealed class LlamaNative : ILlamaNative
     private NativeGenerationOptions CreateDefaultGenerationOptions() =>
         new(
             Math.Max(1, _options.GenerationMaxNewTokens),
-            0.0f,
-            1.0f);
+            GenerationOptionRules.DefaultTemperature,
+            GenerationOptionRules.DefaultTopP);
 
     private sealed class NativeCancellationState
     {
@@ -232,28 +232,26 @@ public sealed class LlamaNative : ILlamaNative
 
     private static void ValidateGenerationOptions(NativeGenerationOptions generationOptions)
     {
-        if (generationOptions.MaxNewTokens <= 0)
+        if (!GenerationOptionRules.HasPositiveMaxTokens(generationOptions.MaxNewTokens))
         {
             throw new NativeInvalidArgumentException("Generation MaxNewTokens must be greater than 0.");
         }
 
-        if (!float.IsFinite(generationOptions.Temperature) || generationOptions.Temperature < 0.0f)
+        if (!GenerationOptionRules.IsValidTemperature(generationOptions.Temperature))
         {
             throw new NativeInvalidArgumentException("Generation Temperature must be finite and greater than or equal to 0.");
         }
 
-        if (!float.IsFinite(generationOptions.TopP) || generationOptions.TopP <= 0.0f || generationOptions.TopP > 1.0f)
+        if (!GenerationOptionRules.IsValidTopP(generationOptions.TopP))
         {
             throw new NativeInvalidArgumentException("Generation TopP must be finite, greater than 0, and less than or equal to 1.");
         }
 
-        if (!AreClose(generationOptions.TopP, 1.0f) && generationOptions.Temperature <= 0.0f)
+        if (!GenerationOptionRules.IsTopPCompatibleWithTemperature(generationOptions.TopP, generationOptions.Temperature))
         {
             throw new NativeInvalidArgumentException("Generation TopP requires Temperature to be greater than 0.");
         }
     }
-
-    private static bool AreClose(float left, float right) => Math.Abs(left - right) < 0.0001f;
 
     private static void ThrowIfError(int code, string op)
     {

@@ -2,8 +2,6 @@ namespace LlamaRuntime.Native.Contracts;
 
 public sealed record NativeGenerationOptions
 {
-    private const float DefaultTopP = 1.0f;
-
     public NativeGenerationOptions(int maxNewTokens, float temperature, float topP)
     {
         Validate(maxNewTokens, temperature, topP);
@@ -19,26 +17,24 @@ public sealed record NativeGenerationOptions
 
     private static void Validate(int maxNewTokens, float temperature, float topP)
     {
-        if (maxNewTokens <= 0)
+        if (!GenerationOptionRules.HasPositiveMaxTokens(maxNewTokens))
         {
             throw new ArgumentOutOfRangeException(nameof(maxNewTokens), "MaxNewTokens must be greater than 0.");
         }
 
-        if (!float.IsFinite(temperature) || temperature < 0.0f)
+        if (!GenerationOptionRules.IsValidTemperature(temperature))
         {
             throw new ArgumentOutOfRangeException(nameof(temperature), "Temperature must be finite and greater than or equal to 0.");
         }
 
-        if (!float.IsFinite(topP) || topP <= 0.0f || topP > 1.0f)
+        if (!GenerationOptionRules.IsValidTopP(topP))
         {
             throw new ArgumentOutOfRangeException(nameof(topP), "TopP must be finite, greater than 0, and less than or equal to 1.");
         }
 
-        if (!AreClose(topP, DefaultTopP) && temperature <= 0.0f)
+        if (!GenerationOptionRules.IsTopPCompatibleWithTemperature(topP, temperature))
         {
             throw new ArgumentException("TopP requires Temperature to be greater than 0.", nameof(topP));
         }
     }
-
-    private static bool AreClose(float left, float right) => Math.Abs(left - right) < 0.0001f;
 }

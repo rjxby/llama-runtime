@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Native.Contracts;
 using LlamaRuntime.Native.Contracts.Configuration;
 using LlamaRuntime.Presentation.Grpc.Inference;
 using LlamaRuntime.Presentation.Grpc.ModelHosting;
@@ -14,8 +15,6 @@ public sealed class GeneratorService : Generator.GeneratorBase
 {
     private const string TextResponseFormat = "text";
     private const string JsonResponseFormat = "json";
-    private const float DefaultTemperature = 0.0f;
-    private const float DefaultTopP = 1.0f;
 
     private readonly ILogger<GeneratorService> _logger;
     private readonly IInferenceCoordinator _inferenceCoordinator;
@@ -212,8 +211,8 @@ public sealed class GeneratorService : Generator.GeneratorBase
     private InferenceGenerationOptions ValidateGenerationOptions(GenerationOptions? generationOptions, HostedRuntimeInfo runtimeInfo)
     {
         var maxOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-        var temperature = DefaultTemperature;
-        var topP = DefaultTopP;
+        var temperature = GenerationOptionRules.DefaultTemperature;
+        var topP = GenerationOptionRules.DefaultTopP;
 
         if (generationOptions is null)
         {
@@ -235,7 +234,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
             maxOutputTokens = generationOptions.MaxOutputTokens;
         }
 
-        if (!float.IsFinite(temperature) || temperature < 0.0f)
+        if (!GenerationOptionRules.IsValidTemperature(temperature))
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -243,7 +242,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
-        if (!float.IsFinite(topP) || topP <= 0.0f || topP > 1.0f)
+        if (!GenerationOptionRules.IsValidTopP(topP))
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -251,7 +250,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
-        if (!AreClose(topP, DefaultTopP) && temperature <= 0.0f)
+        if (!GenerationOptionRules.IsTopPCompatibleWithTemperature(topP, temperature))
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -259,7 +258,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 StatusCode.InvalidArgument);
         }
 
-        if (maxOutputTokens <= 0)
+        if (!GenerationOptionRules.HasPositiveMaxTokens(maxOutputTokens))
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
@@ -332,6 +331,4 @@ public sealed class GeneratorService : Generator.GeneratorBase
 
         return new RpcException(new Status(statusCode, message), metadata);
     }
-
-    private static bool AreClose(float left, float right) => Math.Abs(left - right) < 0.0001f;
 }

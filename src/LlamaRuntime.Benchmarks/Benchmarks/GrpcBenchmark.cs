@@ -33,37 +33,20 @@ public static class GrpcBenchmark
 
         var client = new Generator.GeneratorClient(channel);
 
-        // Warmup
-        logger.LogInformation("Warming up...");
-        for (int i = 0; i < 5; i++)
-        {
-            var requestId = $"warmup-{i}";
-            try
+        await BenchmarkWarmupRunner.RunAsync(
+            async requestId =>
             {
                 var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
 
-                var validation = BenchmarkResponseValidator.ValidateGeneratedText(
+                return BenchmarkResponseValidator.ValidateGeneratedText(
                     reply.Content,
                     options.StrictResponseValidation,
                     "gRPC",
                     options.ResponseFormatKind,
                     requestId,
                     options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
-
-                if (!validation.Success)
-                {
-                    logger.LogWarning(
-                        "Warmup response validation failed for {RequestId}: {FailureReason}",
-                        requestId,
-                        validation.FailureReason);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Warmup failed for {RequestId}", requestId);
-            }
-        }
-        logger.LogInformation("Warmup done.");
+            },
+            logger).ConfigureAwait(false);
 
         return await BenchmarkRunner.RunAsync(
             options.Iterations,
