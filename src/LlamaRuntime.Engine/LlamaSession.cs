@@ -21,13 +21,20 @@ internal sealed class LlamaSession : IInferenceSession
         string prompt,
         CancellationToken ct = default,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? grammar = null)
+        string? grammar = null,
+        InferenceGenerationOptions? generationOptions = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
         ct.ThrowIfCancellationRequested();
 
         var nativeResponseFormat = MapResponseFormat(responseFormat);
-        var result = _native.Infer(_handle, prompt, nativeResponseFormat, grammar);
+        var nativeGenerationOptions = generationOptions is null
+            ? null
+            : new NativeGenerationOptions(
+                generationOptions.MaxOutputTokens,
+                generationOptions.Temperature,
+                generationOptions.TopP);
+        var result = _native.Infer(_handle, prompt, nativeResponseFormat, grammar, nativeGenerationOptions, ct);
         return Task.FromResult(new InferenceResult(
             result.Content,
             result.InputTokens,

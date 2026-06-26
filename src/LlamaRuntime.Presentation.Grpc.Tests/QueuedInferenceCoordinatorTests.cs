@@ -84,6 +84,42 @@ public sealed partial class QueuedInferenceCoordinatorTests
     }
 
     [Fact]
+    public async Task InferAsync_WithGenerationOptions_ForwardsOptionsToProvider()
+    {
+        var provider = new Mock<ILlamaProvider>();
+        var hostedModel = CreateHostedModel();
+        var model = CreateModel();
+        var generationOptions = new InferenceGenerationOptions(4, 0.7f, 0.8f);
+        hostedModel.SetLoaded(model);
+
+        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text, null, generationOptions))
+            .ReturnsAsync(new InferenceResult("ok", 5, 4, 9));
+
+        var (coordinator, worker) = CreateHarness(provider.Object, hostedModel);
+
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            var result = await coordinator.InferAsync(
+                "prompt",
+                CancellationToken.None,
+                "generation-request",
+                InferenceResponseFormat.Text,
+                null,
+                generationOptions);
+
+            Assert.Equal("ok", result.Content);
+            provider.Verify(
+                p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text, null, generationOptions),
+                Times.Once);
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task InferAsync_WhenQueueIsSaturated_ThrowsInferenceQueueRejectedException()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -230,8 +266,8 @@ public sealed partial class QueuedInferenceCoordinatorTests
         var model = CreateModel();
         hostedModel.SetLoaded(model);
 
-        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text, null))
-            .Returns(async (IEngineModel _, string _, CancellationToken ct, InferenceResponseFormat _, string? _) =>
+        provider.Setup(p => p.InferAsync(model, "prompt", It.IsAny<CancellationToken>(), InferenceResponseFormat.Text, null, null))
+            .Returns(async (IEngineModel _, string _, CancellationToken ct, InferenceResponseFormat _, string? _, InferenceGenerationOptions? _) =>
             {
                 started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);

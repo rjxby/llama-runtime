@@ -111,6 +111,32 @@ public sealed class LlamaContextManagerTests
     }
 
     [Fact]
+    public async Task CreateSessionAsync_PrimedContext_CountsTowardPoolCapacity()
+    {
+        var modelHandle = CreateModelHandle();
+        var primedContext = CreateContextHandle(7);
+        var createdContext = CreateContextHandle(8);
+        var native = new Mock<ILlamaNative>();
+        native.Setup(n => n.CreateContext(modelHandle))
+              .Returns(createdContext);
+
+        var manager = CreateManager(native, poolSize: 2);
+        var model = new EngineModel("primed.gguf", modelHandle, TestModelFactory.CreateModelMetadata());
+        manager.PrimeModelContext(model, primedContext);
+
+        var sessions = await Task.WhenAll(
+            manager.CreateSessionAsync(model),
+            manager.CreateSessionAsync(model));
+
+        foreach (var session in sessions)
+        {
+            await session.DisposeAsync();
+        }
+
+        native.Verify(n => n.CreateContext(modelHandle), Times.Once);
+    }
+
+    [Fact]
     public async Task CreateSessionAsync_When_Model_Not_EngineModel_Throws()
     {
         var native = new Mock<ILlamaNative>();

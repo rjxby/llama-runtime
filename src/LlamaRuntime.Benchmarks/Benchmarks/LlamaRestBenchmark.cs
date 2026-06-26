@@ -29,26 +29,13 @@ public static class LlamaRestBenchmark
 
         var payload = CreatePayload(options);
 
-        logger.LogInformation("Warming up...");
-        for (int i = 0; i < 5; i++)
-        {
-            try
-            {
-                await SendRequestAsync(
-                    httpClient,
-                    payload,
-                    options,
-                    logger,
-                    $"warmup-{i}",
-                    isWarmup: true).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Warmup failed for warmup-{Iteration}", i);
-            }
-        }
-
-        logger.LogInformation("Warmup done.");
+        await BenchmarkWarmupRunner.RunAsync(
+            requestId => SendRequestAsync(
+                httpClient,
+                payload,
+                options,
+                requestId),
+            logger).ConfigureAwait(false);
 
         return await BenchmarkRunner.RunAsync(
             options.Iterations,
@@ -57,9 +44,7 @@ public static class LlamaRestBenchmark
                 httpClient,
                 payload,
                 options,
-                logger,
-                $"run-{idx}",
-                isWarmup: false),
+                $"run-{idx}"),
             new BenchmarkRunMetadata(
                 options.Mode,
                 options.Prompt,
@@ -93,9 +78,7 @@ public static class LlamaRestBenchmark
         HttpClient httpClient,
         object payload,
         BenchmarkOptions options,
-        ILogger logger,
-        string requestId,
-        bool isWarmup)
+        string requestId)
     {
         using var response = await httpClient.PostAsJsonAsync("", payload).ConfigureAwait(false);
         var responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -105,20 +88,12 @@ public static class LlamaRestBenchmark
             response.EnsureSuccessStatusCode();
         }
 
-        var (result, parseResult) = BenchmarkResponseValidator.ValidateLlamaRestResponse(
+        var (result, _) = BenchmarkResponseValidator.ValidateLlamaRestResponse(
             responseBody,
             options.StrictResponseValidation,
             options.ResponseFormatKind,
             requestId,
             options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
-
-        if (isWarmup && !result.Success)
-        {
-            logger.LogWarning(
-                "Warmup response validation failed for {RequestId}: {FailureReason}",
-                requestId,
-                result.FailureReason ?? parseResult.FailureReason ?? "Unknown failure");
-        }
 
         return result;
     }

@@ -27,12 +27,13 @@
 - Only one model is hosted at a time.
 - gRPC is the only serving interface.
 - Readiness is healthy only when the model is fully loaded and startup warm-up has completed.
-- Prompt budget is enforced before generation using the effective runtime context size minus `GenerationMaxNewTokens`.
+- Prompt budget is enforced before generation using the effective runtime context size minus the request's effective output-token reservation.
 - The runtime discovers model metadata, including tokenizer family and training-context metadata, from the loaded model during startup.
 - The effective runtime context size comes from the actual created `llama_context` returned by `llama.cpp`, and startup fails if that value does not match the configured runtime context size.
 - `GetCapabilities` reports the effective runtime context and the loaded model/runtime pair’s effective features; callers should query it before budgeting requests.
 - Native output that exceeds the configured managed buffer fails with a dedicated buffer-too-small error instead of silent truncation.
-- `llama.v2` adds capability discovery plus normalized model identity, usage, and runtime trace fields while keeping request-time generation overrides constrained to runtime defaults in the current implementation. Non-default `temperature` and `top_p` are rejected, and `max_output_tokens` is accepted only when it matches configured `GenerationMaxNewTokens`.
+- `llama.v2` adds capability discovery plus normalized model identity, usage, runtime trace fields, and request-time generation controls. `temperature`, `top_p`, and `max_output_tokens` are validated by the gRPC service and forwarded to native inference; omitted fields use greedy runtime defaults.
+- `Llama:Native:GenerationMaxNewTokens` is both the default output-token reservation and the operator ceiling for request-level `generation.max_output_tokens`. Callers can request fewer output tokens, but not more than the configured ceiling or the effective context allows.
 - `response_format.type = json` is the runtime's single structured-output mode. Without a schema it enforces an object-root JSON grammar; with `response_format.json_schema` it validates the strict supported schema subset, converts it to GBNF in .NET, and validates the generated object before returning success. Strict object schemas must declare `properties`, `required`, and `additionalProperties: false`, with `required` matching every declared property.
 - The native adapter is grammar-only for structured output: it receives either text mode or a ready-made GBNF grammar string and does not parse JSON Schema.
 

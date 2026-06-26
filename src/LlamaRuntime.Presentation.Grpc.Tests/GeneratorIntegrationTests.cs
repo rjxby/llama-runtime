@@ -51,6 +51,30 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
     }
 
     [Fact]
+    public async Task Generate_WithGenerationOptions_ReturnsContent()
+    {
+        var client = CreateClient(out var channel);
+
+        var reply = await client.GenerateAsync(new GenerateRequest
+        {
+            RequestId = "generation-options",
+            Prompt = "world",
+            Generation = new GenerationOptions
+            {
+                Temperature = 0.4f,
+                TopP = 0.9f,
+                MaxOutputTokens = 4
+            }
+        }).ResponseAsync;
+
+        Assert.Equal("generation-options", reply.RequestId);
+        Assert.Equal("test-model", reply.Model);
+        Assert.Equal("mocked response", reply.Content);
+
+        channel.Dispose();
+    }
+
+    [Fact]
     public async Task Generate_OversizedPrompt_ReturnsHelpfulError()
     {
         var client = CreateClient(out var channel);
@@ -134,8 +158,10 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
                         It.IsAny<LlamaContextHandle>(),
                         It.IsAny<string>(),
                         It.IsAny<NativeInferenceResponseFormat>(),
-                        It.IsAny<string?>()))
-                    .Returns<LlamaContextHandle, string, NativeInferenceResponseFormat, string?>((_, prompt, responseFormat, _) =>
+                        It.IsAny<string?>(),
+                        It.IsAny<NativeGenerationOptions?>(),
+                        It.IsAny<CancellationToken>()))
+                    .Returns<LlamaContextHandle, string, NativeInferenceResponseFormat, string?, NativeGenerationOptions?, CancellationToken>((_, prompt, responseFormat, _, _, _) =>
                     {
                         var content = responseFormat == NativeInferenceResponseFormat.Grammar
                             ? """{"alternate":true}"""

@@ -14,5 +14,6 @@ public interface IInferenceSession : IAsyncDisposable
         string prompt,
         CancellationToken ct = default,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? grammar = null);
+        string? grammar = null,
+        InferenceGenerationOptions? generationOptions = null);
 }

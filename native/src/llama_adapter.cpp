@@ -1,6 +1,7 @@
 #include "llama_adapter.h"
 #include "llama_adapter_core.h"
 
+#include <new>
 #include <cstddef>
 #include <cstring>
 
@@ -13,6 +14,9 @@ static_assert(offsetof(llama_adapter_generation_params_t, grammar) >
                   offsetof(llama_adapter_generation_params_t,
                            response_format),
               "grammar must follow response_format");
+static_assert(offsetof(llama_adapter_generation_params_t, abort_callback) >
+                  offsetof(llama_adapter_generation_params_t, grammar),
+              "abort_callback must follow grammar");
 
 namespace {
 
@@ -30,6 +34,10 @@ int to_public_error(llama_adapter::Error error) noexcept {
     return LLAMA_ADAPTER_ERR_IO;
   case llama_adapter::Error::BUFFER_TOO_SMALL:
     return LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL;
+  case llama_adapter::Error::EMPTY_OUTPUT:
+    return LLAMA_ADAPTER_ERR_EMPTY_OUTPUT;
+  case llama_adapter::Error::ABORTED:
+    return LLAMA_ADAPTER_ERR_CANCELLED;
   case llama_adapter::Error::UNKNOWN:
   default:
     return LLAMA_ADAPTER_ERR_UNKNOWN;
@@ -46,6 +54,8 @@ llama_adapter::GenParams default_generation_params(
   generation_params.seed = LLAMA_DEFAULT_SEED;
   generation_params.response_format = LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT;
   generation_params.grammar.clear();
+  generation_params.abort_callback = nullptr;
+  generation_params.abort_callback_data = nullptr;
   return generation_params;
 }
 
@@ -77,6 +87,8 @@ int apply_generation_params(
   if (generation_params.response_format == LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR &&
       generation_params.grammar.empty())
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  generation_params.abort_callback = params->abort_callback;
+  generation_params.abort_callback_data = params->abort_callback_data;
 
   return LLAMA_ADAPTER_OK;
 }
@@ -214,16 +226,22 @@ int llama_infer(void *ctx, const char *prompt,
                 llama_adapter_infer_result_t *result) noexcept {
   if (!ctx || !prompt)
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
-  llama_adapter::Context *native_context =
-      static_cast<llama_adapter::Context *>(ctx);
-  llama_adapter::GenParams generation_params =
-      default_generation_params(native_context);
-  const int params_rc = apply_generation_params(generation_params, params);
-  if (params_rc != LLAMA_ADAPTER_OK)
-    return params_rc;
+  try {
+    llama_adapter::Context *native_context =
+        static_cast<llama_adapter::Context *>(ctx);
+    llama_adapter::GenParams generation_params =
+        default_generation_params(native_context);
+    const int params_rc = apply_generation_params(generation_params, params);
+    if (params_rc != LLAMA_ADAPTER_OK)
+      return params_rc;
 
-  const auto rc =
-      native_context->infer(prompt, out, out_size, result, generation_params);
-  return to_public_error(rc);
+    const auto rc =
+        native_context->infer(prompt, out, out_size, result, generation_params);
+    return to_public_error(rc);
+  } catch (const std::bad_alloc &) {
+    return LLAMA_ADAPTER_ERR_OUT_OF_MEMORY;
+  } catch (...) {
+    return LLAMA_ADAPTER_ERR_UNKNOWN;
+  }
 }
 }

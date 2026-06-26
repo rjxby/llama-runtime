@@ -94,7 +94,7 @@ public class ModelLoaderWorker : IHostedService
 
         if (snapshot.Model != null)
         {
-            await _provider.UnloadModelAsync(snapshot.Model, cancellationToken).ConfigureAwait(false);
+            await _provider.UnloadModelAsync(snapshot.Model, CancellationToken.None).ConfigureAwait(false);
         }
 
         _hostedModel.Reset();

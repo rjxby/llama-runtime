@@ -110,16 +110,28 @@ public sealed class LlamaProvider : ILlamaProvider
         string prompt,
         CancellationToken cancellationToken = default,
         InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null)
+        string? jsonSchema = null,
+        InferenceGenerationOptions? generationOptions = null)
     {
         ThrowIfDisposed();
         if (model == null) throw new ArgumentNullException(nameof(model));
         if (prompt == null) throw new ArgumentNullException(nameof(prompt));
+        var effectiveGenerationOptions = generationOptions ?? CreateDefaultGenerationOptions();
+        var sessionGenerationOptions = generationOptions;
 
         try
         {
             await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            return await InferContentAsync(model, session, prompt, cancellationToken, responseFormat, jsonSchema).ConfigureAwait(false);
+            return await InferContentAsync(
+                    model,
+                    session,
+                    prompt,
+                    cancellationToken,
+                    responseFormat,
+                    jsonSchema,
+                    effectiveGenerationOptions,
+                    sessionGenerationOptions)
+                .ConfigureAwait(false);
         }
         catch (NativeException ex)
         {
@@ -133,15 +145,22 @@ public sealed class LlamaProvider : ILlamaProvider
         string prompt,
         CancellationToken cancellationToken,
         InferenceResponseFormat responseFormat,
-        string? jsonSchema)
+        string? jsonSchema,
+        InferenceGenerationOptions generationOptions,
+        InferenceGenerationOptions? sessionGenerationOptions)
     {
         try
         {
+            var promptTokens = await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
+            EnsurePromptFits(model, promptTokens, generationOptions);
+
             var structuredOutput = responseFormat == InferenceResponseFormat.Json
                 ? JsonStructuredOutput.Parse(jsonSchema)
                 : null;
             var grammar = structuredOutput?.Grammar;
-            var result = await session.InferAsync(prompt, cancellationToken, responseFormat, grammar).ConfigureAwait(false);
+            var result = sessionGenerationOptions is null
+                ? await session.InferAsync(prompt, cancellationToken, responseFormat, grammar).ConfigureAwait(false)
+                : await session.InferAsync(prompt, cancellationToken, responseFormat, grammar, sessionGenerationOptions).ConfigureAwait(false);
             if (responseFormat == InferenceResponseFormat.Json)
             {
                 structuredOutput!.ValidateOutput(result.Content);
@@ -162,16 +181,32 @@ public sealed class LlamaProvider : ILlamaProvider
                 throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
             }
 
-            if (ex is NativeInvalidArgumentException)
+            if (ex is NativeEmptyOutputException)
             {
-                var reservedOutputTokens = Math.Max(1, _nativeOptions.GenerationMaxNewTokens);
-                var effectiveContextSize = GetEffectiveContextSize(model);
-                var maxInputTokens = Math.Max(1, effectiveContextSize - reservedOutputTokens);
-                throw new PromptBudgetExceededException(
-                    $"Prompt exceeds input budget: native tokenizer reported more than {maxInputTokens} allowed tokens (context {effectiveContextSize}, reserved output {reservedOutputTokens}).");
+                throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
+            }
+
+            if (ex is NativeCancelledException)
+            {
+                throw new OperationCanceledException(cancellationToken);
             }
 
             throw new InferenceException(CreateInferenceMessage(ex), ex);
+        }
+    }
+
+    private void EnsurePromptFits(
+        IEngineModel model,
+        int promptTokens,
+        InferenceGenerationOptions generationOptions)
+    {
+        var reservedOutputTokens = Math.Max(1, generationOptions.MaxOutputTokens);
+        var effectiveContextSize = GetEffectiveContextSize(model);
+        var maxInputTokens = Math.Max(1, effectiveContextSize - reservedOutputTokens);
+        if (promptTokens > maxInputTokens)
+        {
+            throw new PromptBudgetExceededException(
+                $"Prompt exceeds input budget: tokenizer reported {promptTokens} tokens but only {maxInputTokens} are allowed (context {effectiveContextSize}, reserved output {reservedOutputTokens}).");
         }
     }
 
@@ -196,6 +231,12 @@ public sealed class LlamaProvider : ILlamaProvider
             _ => "Inference failed."
         };
     }
+
+    private InferenceGenerationOptions CreateDefaultGenerationOptions() =>
+        new(
+            Math.Max(1, _nativeOptions.GenerationMaxNewTokens),
+            0.0f,
+            1.0f);
 
     private (LlamaContextHandle ContextHandle, NativeContextMetadata Metadata) CreateProbeContext(
         LlamaModelHandle modelHandle,

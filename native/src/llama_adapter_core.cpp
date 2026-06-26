@@ -12,6 +12,38 @@ namespace llama_adapter {
 #error "LLAMA_ADAPTER_SOURCE_VERSION must be defined by the build"
 #endif
 
+namespace {
+
+bool abort_callback_trampoline(void *data) {
+  auto *context = static_cast<Context *>(data);
+  return context ? context->invoke_abort_callback() : false;
+}
+
+class AbortCallbackScope {
+public:
+  AbortCallbackScope(Context *owner, llama_context *ctx, const GenParams &params)
+      : ctx_(ctx) {
+    if (ctx_ && params.abort_callback) {
+      owner->invoke_abort_callback();
+      llama_set_abort_callback(ctx_, abort_callback_trampoline, owner);
+    }
+  }
+
+  ~AbortCallbackScope() {
+    if (ctx_) {
+      llama_set_abort_callback(ctx_, nullptr, nullptr);
+    }
+  }
+
+  AbortCallbackScope(const AbortCallbackScope &) = delete;
+  AbortCallbackScope &operator=(const AbortCallbackScope &) = delete;
+
+private:
+  llama_context *ctx_ = nullptr;
+};
+
+} // namespace
+
 Model::~Model() noexcept { free(); }
 
 Error Model::load(const char *path) {
@@ -37,7 +69,7 @@ Error Model::metadata(llama_adapter_model_metadata_t *metadata) const {
     return Error::INVALID_ARG;
 
   metadata->training_context_size = llama_model_n_ctx_train(model_);
-  const llama_vocab * model_vocab = vocab();
+  const llama_vocab *model_vocab = vocab();
   metadata->tokenizer_type =
       model_vocab ? static_cast<int32_t>(llama_vocab_type(model_vocab)) : 0;
   return Error::OK;
@@ -90,21 +122,40 @@ Error Context::metadata(llama_adapter_context_metadata_t *metadata) const {
 
 void Context::free() {
   if (ctx_) {
+    llama_set_abort_callback(ctx_, nullptr, nullptr);
     llama_free(ctx_);
     ctx_ = nullptr;
   }
   ctx_n_ctx_ = 0;
   generation_max_new_tokens_ = 128;
   n_past_ = 0;
+  abort_requested_ = false;
+  abort_callback_ = nullptr;
+  abort_callback_data_ = nullptr;
 }
 
 void Context::reset() {
   if (ctx_) {
     llama_memory_t memory = llama_get_memory(ctx_);
     llama_memory_clear(memory, true);
+    llama_set_abort_callback(ctx_, nullptr, nullptr);
   }
   n_past_ = 0;
+  abort_requested_ = false;
+  abort_callback_ = nullptr;
+  abort_callback_data_ = nullptr;
 }
+
+bool Context::invoke_abort_callback() {
+  if (!abort_callback_) {
+    return false;
+  }
+
+  abort_requested_ = abort_callback_(abort_callback_data_);
+  return abort_requested_;
+}
+
+bool Context::is_abort_requested() const { return abort_requested_; }
 
 bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
   if (!model_ref_ || !model_ref_->handle() || !prompt)
@@ -149,6 +200,9 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
   if (!ctx_ || tokens.empty())
     return true;
 
+  if (invoke_abort_callback())
+    return false;
+
   if (ctx_n_ctx_ > 0 &&
       (n_past_ + static_cast<int>(tokens.size())) > ctx_n_ctx_) {
     return false;
@@ -156,6 +210,9 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
 
   const int batch_size = ctx_n_batch_;
   for (int i = 0; i < (int)tokens.size(); i += batch_size) {
+    if (invoke_abort_callback())
+      return false;
+
     int n_tokens = std::min(batch_size, (int)tokens.size() - i);
 
     pos_buffer_.resize(n_tokens);
@@ -188,6 +245,8 @@ bool Context::sample_token(
     std::vector<llama_token> &generated_tokens) {
   if (!ctx_ || !model_ref_ || !model_ref_->handle())
     return false;
+  if (invoke_abort_callback())
+    return false;
 
   const llama_vocab *vocab = model_ref_->vocab();
   if (!vocab)
@@ -204,6 +263,8 @@ bool Context::sample_token(
 
     llama_sampler_accept(sampler, token);
     llama_batch single = llama_batch_get_one(&token, 1);
+    if (invoke_abort_callback())
+      return false;
     if (llama_decode(ctx_, single) < 0)
       return false;
     n_past_++;
@@ -240,6 +301,8 @@ bool Context::sample_token(
   llama_sampler_accept(grammar_sampler, token);
   llama_sampler_accept(sampler, token);
   llama_batch single = llama_batch_get_one(&token, 1);
+  if (invoke_abort_callback())
+    return false;
   if (llama_decode(ctx_, single) < 0)
     return false;
   n_past_++;
@@ -274,17 +337,27 @@ bool Context::generate_tokens(
 
   if (temperature > 0.0f) {
     llama_sampler *top_k_sampler = llama_sampler_init_top_k(40);
+    if (!top_k_sampler)
+      return false;
     llama_sampler_chain_add(sampler.get(), top_k_sampler);
     if (top_p < 1.0f) {
       llama_sampler *top_p_sampler = llama_sampler_init_top_p(top_p, 1);
+      if (!top_p_sampler)
+        return false;
       llama_sampler_chain_add(sampler.get(), top_p_sampler);
     }
     llama_sampler *temperature_sampler = llama_sampler_init_temp(temperature);
+    if (!temperature_sampler)
+      return false;
     llama_sampler_chain_add(sampler.get(), temperature_sampler);
     llama_sampler *dist_sampler = llama_sampler_init_dist(params.seed);
+    if (!dist_sampler)
+      return false;
     llama_sampler_chain_add(sampler.get(), dist_sampler);
   } else {
     llama_sampler *greedy_sampler = llama_sampler_init_greedy();
+    if (!greedy_sampler)
+      return false;
     llama_sampler_chain_add(sampler.get(), greedy_sampler);
   }
 
@@ -344,8 +417,14 @@ Error Context::infer(
     return Error::INVALID_ARG;
 
   reset();
+  abort_callback_ = params.abort_callback;
+  abort_callback_data_ = params.abort_callback_data;
+  AbortCallbackScope abort_scope(this, ctx_, params);
 
   try {
+    if (invoke_abort_callback())
+      return Error::ABORTED;
+
     if (!tokenize(prompt, token_buffer_))
       return Error::IO;
 
@@ -363,12 +442,16 @@ Error Context::infer(
     }
 
     if (!decode(token_buffer_)) {
-      return Error::IO;
+      return is_abort_requested() ? Error::ABORTED : Error::IO;
     }
 
     std::vector<llama_token> generated_tokens;
-    if (!generate_tokens(generated_tokens, params))
-      return Error::IO;
+    if (!generate_tokens(generated_tokens, params)) {
+      return is_abort_requested() ? Error::ABORTED : Error::IO;
+    }
+
+    if (generated_tokens.empty())
+      return Error::EMPTY_OUTPUT;
 
     std::string generated;
     if (!detokenize(generated_tokens, generated))
