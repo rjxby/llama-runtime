@@ -40,12 +40,12 @@ public sealed class ConcurrencyWiringTests
         services.AddLlamaProvider();
 
         using var provider = services.BuildServiceProvider();
-        var manager = provider.GetRequiredService<ILlamaContextManager>();
-        var model = new EngineModel("test.gguf", modelHandle, TestModelFactory.CreateModelMetadata());
+        await using var model = new EngineModel("test.gguf", modelHandle, TestModelFactory.CreateModelMetadata(),
+            native.Object, provider.GetRequiredService<IOptions<InferenceOptions>>().Value.WorkerCount);
 
         var sessions = await Task.WhenAll(
             Enumerable.Range(0, 2)
-                .Select(_ => manager.CreateSessionAsync(model, CancellationToken.None)));
+                .Select(_ => model.CreateSessionAsync(CancellationToken.None)));
 
         foreach (var session in sessions)
         {

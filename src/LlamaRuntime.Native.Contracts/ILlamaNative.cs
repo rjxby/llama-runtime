@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace LlamaRuntime.Native.Contracts;
 
 /// <summary>
-/// Low-level native adapter abstraction. Implementations must be thread-safe.
+/// Implementations must be thread-safe.
 /// </summary>
 public interface ILlamaNative : IDisposable
 {

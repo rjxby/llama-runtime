@@ -27,7 +27,6 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             var nativeMock = new Moq.Mock<LlamaRuntime.Native.Contracts.ILlamaNative>();
-            // Add basic setup to avoid null refs
             nativeMock.Setup(x => x.LoadModel(Moq.It.IsAny<string>()))
                 .Returns(LlamaRuntime.Native.Contracts.LlamaModelHandle.FromIntPtr(new IntPtr(1)));
             nativeMock.Setup(x => x.GetModelMetadata(Moq.It.IsAny<LlamaRuntime.Native.Contracts.LlamaModelHandle>()))
@@ -47,11 +46,11 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     Moq.It.IsAny<string?>(),
                     Moq.It.IsAny<LlamaRuntime.Native.Contracts.NativeGenerationOptions?>(),
                     Moq.It.IsAny<CancellationToken>()))
-                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string, LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat, string?, LlamaRuntime.Native.Contracts.NativeGenerationOptions?, CancellationToken>((_, prompt, responseFormat, _, _, _) =>
+                .Returns<LlamaRuntime.Native.Contracts.LlamaContextHandle, string, LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat, string?, LlamaRuntime.Native.Contracts.NativeGenerationOptions?, CancellationToken>((_, prompt, responseFormat, _, generation, _) =>
                 {
-                    if (prompt.Length > 24)
+                    if (prompt.Length + (generation?.MaxNewTokens ?? 8) > 32)
                     {
-                        throw new LlamaRuntime.Native.Contracts.NativeInvalidArgumentException("too long");
+                        throw new LlamaRuntime.Native.Contracts.NativePromptBudgetExceededException(prompt.Length);
                     }
 
                     var content = responseFormat == LlamaRuntime.Native.Contracts.NativeInferenceResponseFormat.Grammar

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using LlamaRuntime.Engine;
 using LlamaRuntime.Engine.Contracts;
@@ -21,16 +22,21 @@ public static class TestModelFactory
         int? trainingContextSize = null) =>
         new(contextSize, tokenizerType, trainingContextSize ?? contextSize);
 
-    public static EngineModel CreateEngineModel(
+    public static IEngineModel CreateEngineModel(
         string sourcePath = "model.gguf",
         int contextSize = 32,
         NativeTokenizerType tokenizerType = NativeTokenizerType.SentencePiece,
         int? trainingContextSize = null,
         nint handleValue = 1) =>
-        new(
-            sourcePath,
-            CreateModelHandle(handleValue),
-            CreateModelMetadata(contextSize, tokenizerType, trainingContextSize));
+        new MetadataModel(sourcePath, CreateModelMetadata(contextSize, tokenizerType, trainingContextSize));
+
+    private sealed record MetadataModel(string SourcePath, ModelMetadata Metadata) : IEngineModel
+    {
+        public Task<IInferenceSession> CreateSessionAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Metadata-only test model cannot run inference.");
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     public static IOptions<LlamaNativeOptions> CreateNativeOptions(
         int contextSize = 32,

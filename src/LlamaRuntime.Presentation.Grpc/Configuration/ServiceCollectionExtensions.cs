@@ -24,7 +24,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHostedRuntimeInfo>(serviceProvider => serviceProvider.GetRequiredService<HostedModel>());
         services.AddSingleton<InferenceWorkQueue>();
         services.AddSingleton<IInferenceCoordinator, QueuedInferenceCoordinator>();
-        services.AddHostedService<ModelLoaderWorker>();
         services.AddHostedService<QueuedInferenceWorker>();
 
         services.AddOptions<InferenceOptions>()

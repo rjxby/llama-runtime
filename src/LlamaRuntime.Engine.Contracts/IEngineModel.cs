@@ -1,10 +1,9 @@
 namespace LlamaRuntime.Engine.Contracts;
 
-/// <summary>
-/// Represents a loaded model instance.
-/// </summary>
-public interface IEngineModel : IDisposable
+public interface IEngineModel : IDisposable, IAsyncDisposable
 {
+    Task<IInferenceSession> CreateSessionAsync(CancellationToken cancellationToken = default);
+
     string SourcePath { get; }
-    ModelMetadata? Metadata { get; }
+    ModelMetadata Metadata { get; }
 }

@@ -19,22 +19,22 @@ public sealed record NativeGenerationOptions
     {
         if (!GenerationOptionRules.HasPositiveMaxTokens(maxNewTokens))
         {
-            throw new ArgumentOutOfRangeException(nameof(maxNewTokens), "MaxNewTokens must be greater than 0.");
+            throw new ArgumentOutOfRangeException(nameof(maxNewTokens), $"{nameof(MaxNewTokens)} must be greater than 0.");
         }
 
         if (!GenerationOptionRules.IsValidTemperature(temperature))
         {
-            throw new ArgumentOutOfRangeException(nameof(temperature), "Temperature must be finite and greater than or equal to 0.");
+            throw new ArgumentOutOfRangeException(nameof(temperature), $"{nameof(Temperature)} must be finite and greater than or equal to 0.");
         }
 
         if (!GenerationOptionRules.IsValidTopP(topP))
         {
-            throw new ArgumentOutOfRangeException(nameof(topP), "TopP must be finite, greater than 0, and less than or equal to 1.");
+            throw new ArgumentOutOfRangeException(nameof(topP), $"{nameof(TopP)} must be finite, greater than 0, and less than or equal to 1.");
         }
 
         if (!GenerationOptionRules.IsTopPCompatibleWithTemperature(topP, temperature))
         {
-            throw new ArgumentException("TopP requires Temperature to be greater than 0.", nameof(topP));
+            throw new ArgumentException($"{nameof(TopP)} requires {nameof(Temperature)} to be greater than 0.", nameof(topP));
         }
     }
 }

@@ -25,7 +25,9 @@ using var loggerFactory = LoggerFactory.Create(builder =>
     });
 });
 
-var logger = loggerFactory.CreateLogger("Program");
+#pragma warning disable CS0436 // Both executables generate a global Program; this refers to the benchmark entry point.
+var logger = loggerFactory.CreateLogger(nameof(Program));
+#pragma warning restore CS0436
 logger.LogInformation("=== LlamaRuntime Benchmarks ===");
 
 BenchmarkOptions options;
@@ -109,8 +111,8 @@ if (result != null)
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to persist benchmark results to {OutputFile}", outputFile);
         Environment.ExitCode = 1;
+        logger.LogError(ex, "Failed to persist benchmark results to {OutputFile}", outputFile);
         throw;
     }
 }

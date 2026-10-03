@@ -8,7 +8,6 @@ public static class ProviderServiceCollectionExtensions
 {
     public static IServiceCollection AddLlamaProvider(this IServiceCollection services)
     {
-        services.AddSingleton<ILlamaContextManager, LlamaContextManager>();
         services.AddSingleton<ILlamaProvider, LlamaProvider>();
 
         return services;

@@ -1,8 +1,5 @@
 namespace LlamaRuntime.Engine.Contracts;
 
-/// <summary>
-/// High-level engine provider: load/unload models and perform inference.
-/// </summary>
 public interface ILlamaProvider : IDisposable
 {
     Task<IEngineModel> LoadModelAsync(string path, CancellationToken cancellationToken = default);
@@ -10,9 +7,6 @@ public interface ILlamaProvider : IDisposable
     Task<int> CountTokensAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default);
     Task<InferenceResult> InferAsync(
         IEngineModel model,
-        string prompt,
-        CancellationToken cancellationToken = default,
-        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null,
-        InferenceGenerationOptions? generationOptions = null);
+        PreparedGenerationRequest request,
+        CancellationToken cancellationToken = default);
 }

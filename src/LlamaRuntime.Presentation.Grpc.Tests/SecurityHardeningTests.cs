@@ -1,3 +1,4 @@
+using LlamaRuntime.Engine.Contracts;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Hosting;
@@ -159,18 +160,17 @@ public sealed partial class SecurityHardeningTests : IClassFixture<TestWebApplic
         var hostedModel = new HostedModel(TestModelFactory.CreateNativeOptions());
         hostedModel.SetLoaded(TestModelFactory.CreateEngineModel("model.gguf"));
 
-        provider.Setup(p => p.InferAsync(
-                It.IsAny<LlamaRuntime.Engine.Contracts.IEngineModel>(),
-                It.IsAny<string>(),
-                It.IsAny<CancellationToken>(),
-                LlamaRuntime.Engine.Contracts.InferenceResponseFormat.Text,
-                null))
+        provider.Setup(p => p.InferAsync(It.IsAny<LlamaRuntime.Engine.Contracts.IEngineModel>(), It.Is<PreparedGenerationRequest>(r => r.Constraint == null), It.IsAny<CancellationToken>()))
             .Returns(async () =>
             {
                 await gate.Task.ConfigureAwait(false);
                 return new LlamaRuntime.Engine.Contracts.InferenceResult("ok", 5, 2, 7);
             });
 
+        var startupModel = hostedModel.GetSnapshot().Model!;
+        provider.Setup(p => p.LoadModelAsync("model.gguf", It.IsAny<CancellationToken>())).ReturnsAsync(startupModel);
+        provider.Setup(p => p.InferAsync(startupModel, It.Is<PreparedGenerationRequest>(r => r.Prompt == "Hello" && r.Constraint == null), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlamaRuntime.Engine.Contracts.InferenceResult("warm", 1, 1, 2));
         var inferenceOptions = new InferenceOptions
         {
             ChannelCapacity = 1,
@@ -184,12 +184,15 @@ public sealed partial class SecurityHardeningTests : IClassFixture<TestWebApplic
             queue,
             hostedModel,
             Options.Create(inferenceOptions),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<QueuedInferenceWorker>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<QueuedInferenceWorker>.Instance,
+            Mock.Of<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(), provider.Object, hostedModel,
+            Options.Create(new LlamaRuntime.Presentation.Grpc.Configuration.HostedModelOptions { ModelPath = "model.gguf", ModelId = "test-model" }),
+            TestModelFactory.CreateNativeOptions());
 
         await worker.StartAsync(CancellationToken.None);
         try
         {
-            var inFlight = coordinator.InferAsync("first", CancellationToken.None);
+            var inFlight = coordinator.InferAsync(new PreparedGenerationRequest("first", new InferenceGenerationOptions(8, 0, 1)), CancellationToken.None, null);
 
             await Task.Delay(150);
             gate.TrySetResult();

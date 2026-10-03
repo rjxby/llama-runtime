@@ -35,18 +35,14 @@ public sealed class GeneratorService : Generator.GeneratorBase
 
     public override async Task<GenerateReply> Generate(GenerateRequest request, ServerCallContext context)
     {
-        _logger.LogInformation("Generate request received (request_id={RequestId})", request.RequestId);
+        _logger.LogInformation(nameof(Generate) + " request received (request_id={RequestId})", request.RequestId);
 
         try
         {
             var runtime = EnsureRuntimeLoaded();
-            var (responseFormat, generationOptions) = ValidateGenerateRequest(request, runtime);
-            var jsonSchema = responseFormat == InferenceResponseFormat.Json
-                ? request.ResponseFormat!.JsonSchema
-                : null;
-
+            var prepared = ValidateGenerateRequest(request, runtime);
             var inference = await _inferenceCoordinator
-                .InferAsync(request.Prompt, context.CancellationToken, request.RequestId, responseFormat, jsonSchema, generationOptions)
+                .InferAsync(prepared, context.CancellationToken, request.RequestId)
                 .ConfigureAwait(false);
 
             return new GenerateReply
@@ -62,8 +58,8 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 },
                 RuntimeTrace = new RuntimeTrace
                 {
-                    StructuredOutputApplied = responseFormat == InferenceResponseFormat.Json,
-                    StructuredOutputSatisfied = responseFormat == InferenceResponseFormat.Json,
+                    StructuredOutputApplied = prepared.Constraint != null,
+                    StructuredOutputSatisfied = prepared.Constraint != null,
                     SpeculativeDecodingUsed = false
                 }
             };
@@ -88,7 +84,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             if (string.IsNullOrWhiteSpace(request.Prompt))
             {
-                throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, "Prompt is required.", StatusCode.InvalidArgument);
+                throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(EstimateTokensRequest.Prompt)} is required.", StatusCode.InvalidArgument);
             }
 
             var runtime = EnsureRuntimeLoaded();
@@ -147,18 +143,18 @@ public sealed class GeneratorService : Generator.GeneratorBase
         }
     }
 
-    private (InferenceResponseFormat ResponseFormat, InferenceGenerationOptions GenerationOptions) ValidateGenerateRequest(
+    private PreparedGenerationRequest ValidateGenerateRequest(
         GenerateRequest request,
         HostedRuntimeInfo runtimeInfo)
     {
         if (string.IsNullOrWhiteSpace(request.RequestId))
         {
-            throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, "RequestId is required.", StatusCode.InvalidArgument);
+            throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(GenerateRequest.RequestId)} is required.", StatusCode.InvalidArgument);
         }
 
         if (string.IsNullOrWhiteSpace(request.Prompt))
         {
-            throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, "Prompt is required.", StatusCode.InvalidArgument);
+            throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(GenerateRequest.Prompt)} is required.", StatusCode.InvalidArgument);
         }
 
         var responseFormat = request.ResponseFormat?.Type?.Trim();
@@ -168,12 +164,12 @@ public sealed class GeneratorService : Generator.GeneratorBase
             {
                 throw CreateRpcException(
                     RuntimeErrorMetadata.InvalidArgumentCode,
-                    "ResponseFormat.JsonSchema is only valid when ResponseFormat.Type is 'json'.",
+                    $"{nameof(GenerateRequest.ResponseFormat)}.{nameof(ResponseFormat.JsonSchema)} is only valid when {nameof(GenerateRequest.ResponseFormat)}.{nameof(ResponseFormat.Type)} is 'json'.",
                     StatusCode.InvalidArgument);
             }
 
             var generationOptions = ValidateGenerationOptions(request.Generation, runtimeInfo);
-            return (InferenceResponseFormat.Text, generationOptions);
+            return new PreparedGenerationRequest(request.Prompt, generationOptions);
         }
 
         if (string.Equals(responseFormat, JsonResponseFormat, StringComparison.Ordinal))
@@ -186,9 +182,10 @@ public sealed class GeneratorService : Generator.GeneratorBase
                     StatusCode.InvalidArgument);
             }
 
+            JsonStructuredOutput constraint;
             try
             {
-                JsonStructuredOutput.ValidateSchema(request.ResponseFormat?.JsonSchema);
+                constraint = JsonStructuredOutput.Parse(request.ResponseFormat?.JsonSchema);
             }
             catch (ArgumentException ex)
             {
@@ -199,12 +196,12 @@ public sealed class GeneratorService : Generator.GeneratorBase
             }
 
             var generationOptions = ValidateGenerationOptions(request.Generation, runtimeInfo);
-            return (InferenceResponseFormat.Json, generationOptions);
+            return new PreparedGenerationRequest(request.Prompt, generationOptions, constraint);
         }
 
         throw CreateRpcException(
             RuntimeErrorMetadata.InvalidArgumentCode,
-            $"ResponseFormat.Type must be one of '{TextResponseFormat}' or '{JsonResponseFormat}'.",
+            $"{nameof(GenerateRequest.ResponseFormat)}.{nameof(ResponseFormat.Type)} must be one of '{TextResponseFormat}' or '{JsonResponseFormat}'.",
             StatusCode.InvalidArgument);
     }
 
@@ -238,7 +235,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.Temperature must be finite and greater than or equal to 0.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.Temperature)} must be finite and greater than or equal to 0.",
                 StatusCode.InvalidArgument);
         }
 
@@ -246,7 +243,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.TopP must be finite, greater than 0, and less than or equal to 1.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.TopP)} must be finite, greater than 0, and less than or equal to 1.",
                 StatusCode.InvalidArgument);
         }
 
@@ -254,7 +251,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.TopP requires Generation.Temperature to be greater than 0.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.TopP)} requires {nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.Temperature)} to be greater than 0.",
                 StatusCode.InvalidArgument);
         }
 
@@ -262,7 +259,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                "Generation.MaxOutputTokens must be greater than 0.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.MaxOutputTokens)} must be greater than 0.",
                 StatusCode.InvalidArgument);
         }
 
@@ -271,7 +268,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                $"Generation.MaxOutputTokens must be less than or equal to configured maximum {configuredMaxOutputTokens}.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.MaxOutputTokens)} must be less than or equal to configured maximum {configuredMaxOutputTokens}.",
                 StatusCode.InvalidArgument);
         }
 
@@ -281,7 +278,7 @@ public sealed class GeneratorService : Generator.GeneratorBase
         {
             throw CreateRpcException(
                 RuntimeErrorMetadata.InvalidArgumentCode,
-                $"Generation.MaxOutputTokens must be less than effective context size {effectiveContextSize}.",
+                $"{nameof(GenerateRequest.Generation)}.{nameof(GenerationOptions.MaxOutputTokens)} must be less than effective context size {effectiveContextSize}.",
                 StatusCode.InvalidArgument);
         }
 

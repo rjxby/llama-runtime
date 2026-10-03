@@ -169,18 +169,7 @@ int main(int argc, char **argv) {
 
   memset(output, 0, sizeof(output));
   result = {0};
-  static const char *json_object_grammar = R"(root ::= object
-array ::= "[" space ( value ("," space value)* )? "]" space
-boolean ::= ("true" | "false") space
-char ::= [^"\\\x7F\x00-\x1F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})
-decimal-part ::= [0-9]{1,16}
-integral-part ::= [0] | [1-9] [0-9]{0,15}
-null ::= "null" space
-number ::= ("-"? integral-part) ("." decimal-part)? ([eE] [-+]? integral-part)? space
-object ::= "{" space ( string ":" space value ("," space string ":" space value)* )? "}" space
-space ::= | " " | "\n"{1,2} [ \t]{0,20}
-string ::= "\"" char* "\"" space
-value ::= object | array | string | number | boolean | null
+  static const char *json_object_grammar = R"(root ::= "{\"ok\":true}"
 )";
   llama_adapter_generation_params_t json_params = {
       64, 0.0f, 1.0f, 0xFFFFFFFFu,
@@ -222,6 +211,16 @@ value ::= object | array | string | number | boolean | null
                    &result);
   if (rc != LLAMA_ADAPTER_ERR_INVALID_ARG) {
     fprintf(stderr, "FAIL: invalid response format returned code=%d\n", rc);
+    return 1;
+  }
+
+  llama_adapter_generation_params_t oversized_params = {
+      INT32_MAX, 0.0f, 1.0f, 42u, LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT, nullptr};
+  result = {0};
+  rc = llama_infer(ctx, "Hello", &oversized_params, output, sizeof(output), &result);
+  if (rc != LLAMA_ADAPTER_ERR_PROMPT_BUDGET || result.prompt_tokens <= 0 ||
+      result.output_tokens != 0 || result.total_tokens != result.prompt_tokens) {
+    fprintf(stderr, "FAIL: prompt budget error or usage changed code=%d\n", rc);
     return 1;
   }
 

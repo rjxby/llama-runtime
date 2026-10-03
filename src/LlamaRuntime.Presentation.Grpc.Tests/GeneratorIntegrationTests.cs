@@ -152,8 +152,6 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
                     .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
                 nativeMock.Setup(x => x.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
                     .Returns(new NativeContextMetadata(64));
-                nativeMock.Setup(x => x.CountTokens(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()))
-                    .Returns<LlamaContextHandle, string>((_, prompt) => prompt.Length);
                 nativeMock.Setup(x => x.Infer(
                         It.IsAny<LlamaContextHandle>(),
                         It.IsAny<string>(),

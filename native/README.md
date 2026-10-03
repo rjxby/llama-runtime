@@ -74,7 +74,7 @@ This adapter intentionally uses the **most portable llama.cpp integration path**
 - Uses official llama.cpp vocab APIs
 - Returns an explicit buffer-too-small error when the caller output buffer is insufficient
 
-The repo is currently validated against the pinned vendor release `b8868`. Other revisions should be treated as unverified until tested. When intentionally changing that pin, use `make pin-llama LLAMA_VERSION=bNNNN` so the manifest, vendored artifacts, and tracked docs move together.
+The repo is currently validated against the pinned vendor release `b10964`. Other revisions should be treated as unverified until tested. When intentionally changing that pin, use `make pin-llama LLAMA_VERSION=bNNNN` so the manifest, vendored artifacts, and tracked docs move together.
 
 ---
 
@@ -88,11 +88,18 @@ Build native library:
 make native-build
 ```
 
-Run integration tests:
+Ordinary builds and packages use `BUILD_TESTING=OFF` and do not fetch test
+dependencies or require a model. The integration-test target enables testing,
+builds the executable, and runs CTest:
 
 ```bash
-make native-integration-tests
+make native-integration-tests MODEL_PATH=models/stories15M-q4_0.gguf
 ```
+
+`MODEL_PATH` must name an existing model file. Relative paths resolve from the
+repository root; absolute paths also work. For direct CMake builds, pass
+`-DBUILD_TESTING=ON -DMODEL_PATH=/absolute/path/to/model.gguf` to enable tests.
+The configured test receives that model path when run through CTest.
 
 Resulting library:
 
@@ -213,6 +220,7 @@ LLAMA_ADAPTER_ERR_LOAD_MODEL
 LLAMA_ADAPTER_ERR_NOT_FOUND
 LLAMA_ADAPTER_ERR_IO
 LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL
+LLAMA_ADAPTER_ERR_PROMPT_BUDGET // 12; result retains prompt-token count
 LLAMA_ADAPTER_ERR_OUT_OF_MEMORY
 LLAMA_ADAPTER_ERR_UNKNOWN
 ```

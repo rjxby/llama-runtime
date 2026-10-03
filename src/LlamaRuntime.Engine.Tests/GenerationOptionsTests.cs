@@ -15,7 +15,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new InferenceGenerationOptions(maxOutputTokens, 0.0f, 1.0f));
 
-        Assert.Equal("maxOutputTokens", ex.ParamName);
+        Assert.Equal(nameof(maxOutputTokens), ex.ParamName);
     }
 
     [Theory]
@@ -27,7 +27,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new InferenceGenerationOptions(1, temperature, 1.0f));
 
-        Assert.Equal("temperature", ex.ParamName);
+        Assert.Equal(nameof(temperature), ex.ParamName);
     }
 
     [Theory]
@@ -41,7 +41,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new InferenceGenerationOptions(1, 0.7f, topP));
 
-        Assert.Equal("topP", ex.ParamName);
+        Assert.Equal(nameof(topP), ex.ParamName);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new NativeGenerationOptions(maxNewTokens, 0.0f, 1.0f));
 
-        Assert.Equal("maxNewTokens", ex.ParamName);
+        Assert.Equal(nameof(maxNewTokens), ex.ParamName);
     }
 
     [Theory]
@@ -73,7 +73,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new NativeGenerationOptions(1, temperature, 1.0f));
 
-        Assert.Equal("temperature", ex.ParamName);
+        Assert.Equal(nameof(temperature), ex.ParamName);
     }
 
     [Theory]
@@ -87,7 +87,7 @@ public sealed class GenerationOptionsTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
             new NativeGenerationOptions(1, 0.7f, topP));
 
-        Assert.Equal("topP", ex.ParamName);
+        Assert.Equal(nameof(topP), ex.ParamName);
     }
 
     [Fact]

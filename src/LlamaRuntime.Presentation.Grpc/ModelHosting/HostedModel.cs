@@ -6,7 +6,7 @@ using LlamaRuntime.Native.Contracts.Configuration;
 
 namespace LlamaRuntime.Presentation.Grpc.ModelHosting;
 
-public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
+public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo, IDisposable
 {
     private const string StructuredOutputAvailableDiagnostic =
         "Structured output enforcement is available.";
@@ -20,6 +20,8 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
     private readonly Lock _gate = new();
     private readonly LlamaNativeOptions _nativeOptions;
     private HostedModelSnapshot _snapshot = new(HostedModelState.NotLoaded, null);
+    private IEngineModel? _ownedModel;
+    private TaskCompletionSource? _cleanup;
 
     public HostedModel(IOptions<LlamaNativeOptions> nativeOptions)
     {
@@ -44,7 +46,7 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
             snapshot.State,
             ResolvePublicModelId(snapshot),
             _nativeOptions.ContextSize,
-            metadata?.ContextSize > 0 ? metadata.ContextSize : _nativeOptions.ContextSize,
+            metadata?.ContextSize ?? _nativeOptions.ContextSize,
             metadata?.TrainingContextSize,
             tokenizerType,
             FormatTokenizerFamily(tokenizerType),
@@ -58,7 +60,7 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
     {
         lock (_gate)
         {
-            model = _snapshot.Model;
+            model = _cleanup == null ? _snapshot.Model : null;
             return _snapshot.State == HostedModelState.Loaded && model != null;
         }
     }
@@ -67,6 +69,7 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
     {
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_cleanup != null, this);
             _snapshot = new HostedModelSnapshot(HostedModelState.Loading, null);
         }
     }
@@ -77,6 +80,7 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
 
         lock (_gate)
         {
+            TakeOwnership(model);
             _snapshot = new HostedModelSnapshot(HostedModelState.WarmingUp, model, ConfiguredModelId: configuredModelId);
         }
     }
@@ -87,6 +91,7 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
 
         lock (_gate)
         {
+            TakeOwnership(model);
             _snapshot = new HostedModelSnapshot(HostedModelState.Loaded, model, ConfiguredModelId: configuredModelId);
         }
     }
@@ -114,6 +119,60 @@ public sealed class HostedModel : IHostedModel, IHostedRuntimeInfo
         lock (_gate)
         {
             _snapshot = new HostedModelSnapshot(HostedModelState.NotLoaded, null);
+        }
+    }
+
+    public void Dispose() => _ = CloseAsync();
+
+    public Task CloseAsync()
+    {
+        IEngineModel? model;
+        TaskCompletionSource cleanup;
+        lock (_gate)
+        {
+            if (_cleanup != null)
+            {
+                return _cleanup.Task;
+            }
+
+            cleanup = _cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            model = _ownedModel;
+            _ownedModel = null;
+            if (_snapshot.State is HostedModelState.Loading or HostedModelState.WarmingUp or HostedModelState.Loaded)
+            {
+                _snapshot = _snapshot with { State = HostedModelState.Stopping };
+            }
+        }
+
+        _ = CleanupAsync(model, cleanup);
+        return cleanup.Task;
+    }
+
+    private void TakeOwnership(IEngineModel model)
+    {
+        ObjectDisposedException.ThrowIf(_cleanup != null, this);
+        if (_ownedModel != null && !ReferenceEquals(_ownedModel, model))
+        {
+            throw new InvalidOperationException("The hosted model cannot be replaced.");
+        }
+
+        _ownedModel = model;
+    }
+
+    private static async Task CleanupAsync(IEngineModel? model, TaskCompletionSource cleanup)
+    {
+        try
+        {
+            if (model != null)
+            {
+                await model.DisposeAsync().ConfigureAwait(false);
+            }
+
+            cleanup.TrySetResult();
+        }
+        catch (Exception ex)
+        {
+            cleanup.TrySetException(ex);
         }
     }
 

@@ -17,10 +17,14 @@ public class InMemoryApiKeyValidator : IApiKeyValidator
     public Task<ClaimsPrincipal?> ValidateAsync(string apiKey)
     {
         if (string.IsNullOrEmpty(apiKey))
+        {
             return Task.FromResult<ClaimsPrincipal?>(null);
+        }
 
         if (!_keys.Contains(apiKey))
+        {
             return Task.FromResult<ClaimsPrincipal?>(null);
+        }
 
         var claims = new[]
         {

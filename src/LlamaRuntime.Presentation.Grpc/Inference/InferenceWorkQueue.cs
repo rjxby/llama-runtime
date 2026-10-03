@@ -10,6 +10,7 @@ public sealed partial class InferenceWorkQueue
 {
     private readonly Channel<IInferenceWorkItem> _channel;
     private readonly InferenceOptions _options;
+    private readonly CancellationTokenSource _stopping = new();
 
     public InferenceWorkQueue(IOptions<InferenceOptions> options)
     {
@@ -36,7 +37,19 @@ public sealed partial class InferenceWorkQueue
     internal ValueTask<IInferenceWorkItem> DequeueAsync(CancellationToken cancellationToken) =>
         _channel.Reader.ReadAsync(cancellationToken);
 
-    internal void Complete() => _channel.Writer.TryComplete();
+    internal void Complete()
+    {
+        if (!_channel.Writer.TryComplete())
+        {
+            return;
+        }
+
+        _stopping.Cancel();
+        while (_channel.Reader.TryRead(out var queued))
+        {
+            queued.TrySetCanceled(_stopping.Token);
+        }
+    }
 
     internal async Task<T> EnqueueAsync<T>(
         InferenceOperation operation,
@@ -65,7 +78,15 @@ public sealed partial class InferenceWorkQueue
                 ex);
         }
 
-        return await workItem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopping.Token);
+        try
+        {
+            return await workItem.WaitAsync(waiting.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && _stopping.IsCancellationRequested)
+        {
+            throw new ModelNotFoundException("Model is stopping.");
+        }
     }
 
 }

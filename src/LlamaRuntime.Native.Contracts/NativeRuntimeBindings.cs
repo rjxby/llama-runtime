@@ -12,6 +12,7 @@ public static class NativeRuntimeBindings
     private delegate int ReleaseContextDelegate(IntPtr context);
 
     private static int _initialized;
+    private static readonly Lock Gate = new();
     private static ReleaseModelDelegate? _releaseModel;
     private static ReleaseContextDelegate? _releaseContext;
 
@@ -24,22 +25,18 @@ public static class NativeRuntimeBindings
             throw new ArgumentException("Library handle must be non-zero.", nameof(libraryHandle));
         }
 
-        if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 1)
+        lock (Gate)
         {
-            return;
-        }
+            if (IsInitialized)
+            {
+                return;
+            }
 
-        try
-        {
-            _releaseModel = LoadFunction<ReleaseModelDelegate>(libraryHandle, "llama_unload_model");
-            _releaseContext = LoadFunction<ReleaseContextDelegate>(libraryHandle, "llama_remove_context");
-        }
-        catch
-        {
-            Volatile.Write(ref _initialized, 0);
-            _releaseModel = null;
-            _releaseContext = null;
-            throw;
+            var releaseModel = LoadFunction<ReleaseModelDelegate>(libraryHandle, "llama_unload_model");
+            var releaseContext = LoadFunction<ReleaseContextDelegate>(libraryHandle, "llama_remove_context");
+            _releaseModel = releaseModel;
+            _releaseContext = releaseContext;
+            Volatile.Write(ref _initialized, 1);
         }
     }
 
