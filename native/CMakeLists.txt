@@ -12,7 +12,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-include(FetchContent)
+option(BUILD_TESTING "Build native integration tests" OFF)
+set(MODEL_PATH "" CACHE STRING "Model file for native integration tests, relative to the repository root or absolute")
 
 # -------------------------------------------------------------------
 # REQUIRED BUILD-TIME PARAMETERS
@@ -35,6 +36,11 @@ get_filename_component(LLAMA_LIBRARY_ROOT "${LLAMA_LIBRARY_ROOT}" ABSOLUTE)
 
 message(STATUS "ABS LLAMA_INCLUDE_ROOT = ${LLAMA_INCLUDE_ROOT}")
 message(STATUS "ABS LLAMA_LIBRARY_ROOT = ${LLAMA_LIBRARY_ROOT}")
+
+set(LLAMA_LIBRARY "${LLAMA_LIBRARY_ROOT}/${CMAKE_SHARED_LIBRARY_PREFIX}llama${CMAKE_SHARED_LIBRARY_SUFFIX}")
+if (NOT EXISTS "${LLAMA_LIBRARY}")
+    message(FATAL_ERROR "Core llama library not found: ${LLAMA_LIBRARY}")
+endif()
 
 # -------------------------------------------------------------------
 # Adapter library
@@ -61,7 +67,7 @@ target_compile_definitions(llama_adapter
 # - No target_link_directories
 target_link_libraries(llama_adapter
     PRIVATE
-        "${LLAMA_LIBRARY_ROOT}/libllama.dylib"
+        "${LLAMA_LIBRARY}"
 )
 
 # -------------------------------------------------------------------
@@ -95,8 +101,9 @@ set_target_properties(llama_adapter PROPERTIES
 if (APPLE)
     set(lib_pattern "lib*.dylib")
 else()
-    set(lib_pattern "lib*.so")
+    set(lib_pattern "lib*.so*")
 endif()
+file(GLOB runtime_libraries CONFIGURE_DEPENDS "${LLAMA_LIBRARY_ROOT}/${lib_pattern}")
 
 add_custom_command(TARGET llama_adapter POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
@@ -106,43 +113,50 @@ add_custom_command(TARGET llama_adapter POST_BUILD
         "${CMAKE_SOURCE_DIR}/../LICENSE"
         "$<TARGET_FILE_DIR:llama_adapter>/LICENSE"
     COMMENT "Copying licenses to build directory"
+    VERBATIM
 )
 
 add_custom_command(TARGET llama_adapter POST_BUILD
-    COMMAND sh -c "cp ${LLAMA_LIBRARY_ROOT}/${lib_pattern} ."
-    WORKING_DIRECTORY $<TARGET_FILE_DIR:llama_adapter>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${runtime_libraries} "$<TARGET_FILE_DIR:llama_adapter>"
     VERBATIM
 )
 
 # -------------------------------------------------------------------
 # Integration test
 # -------------------------------------------------------------------
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-set(JSON_Install OFF CACHE INTERNAL "")
-FetchContent_Declare(nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.3
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
-add_executable(integration_test
-    ../tests/integration_test.cpp
-)
-
-target_link_libraries(integration_test
-    PRIVATE
-        llama_adapter
-        nlohmann_json::nlohmann_json
-)
-
-if (APPLE)
-    set_target_properties(integration_test PROPERTIES
-        BUILD_RPATH "@executable_path;@loader_path"
-    )
-endif()
-
-# -------------------------------------------------------------------
-# CTest
-# -------------------------------------------------------------------
 enable_testing()
-add_test(NAME integration_test COMMAND integration_test)
+if (BUILD_TESTING)
+    if (MODEL_PATH STREQUAL "")
+        message(FATAL_ERROR "MODEL_PATH must be set when BUILD_TESTING=ON")
+    endif()
+    get_filename_component(test_model_path "${MODEL_PATH}" ABSOLUTE
+        BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
+    if (NOT EXISTS "${test_model_path}" OR IS_DIRECTORY "${test_model_path}")
+        message(FATAL_ERROR "MODEL_PATH must name an existing model file: ${test_model_path}")
+    endif()
+
+    include(FetchContent)
+    set(JSON_BuildTests OFF CACHE INTERNAL "")
+    set(JSON_Install OFF CACHE INTERNAL "")
+    FetchContent_Declare(nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+
+    add_executable(integration_test tests/integration_test.cpp)
+    target_link_libraries(integration_test
+        PRIVATE
+            llama_adapter
+            nlohmann_json::nlohmann_json
+    )
+    set_target_properties(integration_test PROPERTIES
+        BUILD_RPATH "${rpath_origin}"
+    )
+    add_test(NAME integration_test COMMAND integration_test "${test_model_path}")
+    add_executable(context_test tests/context_test.cpp)
+    target_link_libraries(context_test PRIVATE llama_adapter "${LLAMA_LIBRARY}")
+    set_target_properties(context_test PROPERTIES BUILD_RPATH "${rpath_origin}")
+    add_test(NAME context_test COMMAND context_test "${test_model_path}")
+endif()

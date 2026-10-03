@@ -19,6 +19,7 @@ enum class Error {
   EMPTY_OUTPUT,
   ABORTED,
   UNKNOWN,
+  PROMPT_BUDGET,
 };
 
 struct GenParams {
@@ -51,7 +52,8 @@ private:
 
 class Context {
 public:
-  Context(Model *model) noexcept;
+  using DecodeFunction = int32_t (*)(llama_context *, llama_batch);
+  Context(Model *model, DecodeFunction decode_function = llama_decode) noexcept;
   ~Context() noexcept;
 
   Error init(int n_ctx, int n_batch, int generation_max_new_tokens);
@@ -66,7 +68,7 @@ public:
   bool invoke_abort_callback();
   bool is_abort_requested() const;
   bool sample_token(
-      llama_sampler *sampler, llama_sampler *grammar_sampler,
+      llama_sampler *sampler,
       llama_token &token,
       std::vector<llama_token> &generated_tokens);
   bool generate_tokens(
@@ -79,11 +81,12 @@ public:
       llama_adapter_infer_result_t *result, const GenParams &params);
 
 private:
+  bool decode_batch(llama_batch batch);
+  DecodeFunction decode_function_;
   Model *model_ref_ = nullptr;
   llama_context *ctx_ = nullptr;
   std::vector<llama_token> token_buffer_;
   std::vector<llama_pos> pos_buffer_;
-  std::vector<llama_token_data> sample_candidates_;
 
   int ctx_n_ctx_ = 0;
   int ctx_n_batch_ = 0;
@@ -96,4 +99,4 @@ private:
 
 const char *source_version() noexcept;
 
-} // namespace llama_adapter
+}

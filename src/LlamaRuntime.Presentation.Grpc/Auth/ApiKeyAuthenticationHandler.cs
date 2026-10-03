@@ -21,11 +21,16 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue(AuthConstants.AuthenticationScheme, out var values))
+        {
             return AuthenticateResult.Fail("Missing API Key");
+        }
 
         var apiKey = values.ToString();
         var principal = await _validator.ValidateAsync(apiKey).ConfigureAwait(false);
-        if (principal == null) return AuthenticateResult.Fail("Invalid API Key");
+        if (principal == null)
+        {
+            return AuthenticateResult.Fail("Invalid API Key");
+        }
 
         var ticket = new AuthenticationTicket(principal, Scheme.Name);
         return AuthenticateResult.Success(ticket);

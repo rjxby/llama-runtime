@@ -9,4 +9,7 @@ public record BenchmarkResult(
     double ThroughputRps,
     int SuccessCount,
     int ErrorCount
-);
+)
+{
+    public int DiagnosticErrorCount { get; init; }
+}

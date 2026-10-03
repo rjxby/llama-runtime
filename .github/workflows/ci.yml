@@ -31,7 +31,7 @@ jobs:
       run: |
         # Generate a temporary .env for the runner's execution
         echo "PLATFORM=macos-arm64" > .env
-        echo "LLAMA_VERSION=b8868" >> .env
+        echo "LLAMA_VERSION=b10964" >> .env
         echo "DOTNET_RUNTIME=osx-arm64" >> .env
         make init
 
@@ -41,5 +41,8 @@ jobs:
     - name: Build .NET Solution
       run: dotnet build src/llama-runtime.slnx -c Release
 
-    - name: Run Unit Tests
-      run: dotnet test src/llama-runtime.slnx -c Release --no-build --verbosity normal --filter "Category=Unit"
+    - name: Verify C# braces
+      run: dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
+
+    - name: Run Managed Tests
+      run: dotnet test src/llama-runtime.slnx -c Release --no-build --verbosity normal

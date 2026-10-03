@@ -48,7 +48,7 @@ tracked_pin_files=(
   ".github/workflows/release.yml"
   ".github/copilot-instructions.md"
   "README.md"
-  "CLAUDE.md"
+  "AGENTS.md"
   "native/README.md"
   "docs/architecture.md"
 )

@@ -1,3 +1,29 @@
+# Change rules
+
+- Make each change as small and simple as possible while solving the selected problem completely.
+- Prefer removing unnecessary code, branches, state, and dependencies over adding abstractions.
+- Reuse the existing design. Do not rearchitect the project to fix a local problem.
+- Work on one user-selected concern at a time. A saved finding or plan is future work, not authorization to implement it.
+- Keep unrelated refactors, renames, formatting, dependency upgrades, and documentation rewrites out of the change.
+- Add a helper, interface, service, project, or dependency only when the selected problem needs it and existing code cannot solve it more simply.
+- Preserve existing behavior and public contracts unless the selected task requires changing them.
+- If a local fix proves insufficient, explain the concrete reason and agree on the larger scope before expanding the work.
+- Use focused verification that proves the fix. Avoid tests that only mirror the implementation.
+- In the result, explain what changed, what was removed, and how it was verified.
+
+# Writing
+
+Use the `unslop` skill to review user-facing prose. Preserve technical accuracy, citations, required formatting, and code syntax.
+
+# Code style
+
+- Use multiline braces for every `if`/`else`, loop, `lock`, `try`, `catch`, and `finally` body in hand-written C# and C++, including tests. Keep conventional `else if` chains with braced branch bodies.
+- Keep expression-bodied methods, properties, and compact constructors.
+- Remove comments that repeat names or statements. Retain comments that explain ordering, ownership, thread safety, or nonthrowing cleanup.
+- Keep each documented contract in one place and link to it elsewhere. Put change history and review explanations in commit or PR descriptions.
+- Exclude generated code and vendored dependencies from this cleanup.
+- Verify C# braces without changing files: `dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore`.
+
 # llama-runtime
 
 Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
@@ -19,7 +45,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 ## Environment And Build Notes
 
 - The `Makefile` fails fast if neither `.env` nor the selected platform env file exists. This repo currently includes `.env.macos` and `.env.example`.
-- `LLAMA_VERSION` is pinned to `b8868`. Treat compatibility with other `llama.cpp` revisions as unverified until the native adapter and integration tests have been validated.
+- `LLAMA_VERSION` is pinned to `b10964`. Treat compatibility with other `llama.cpp` revisions as unverified until the native adapter and integration tests have been validated.
 - Maintain exactly one supported upstream revision at a time. Use `make pin-llama LLAMA_VERSION=bNNNN` when intentionally changing that pin.
 - `make pack` publishes `src/LlamaRuntime.Presentation.Grpc` as a self-contained single-file app and then copies native libraries and license files into `dist/`.
 - Keep `PublishReadyToRun` disabled by default. The repo documents a deterministic startup crash with `PublishReadyToRun=true` while loading the native `llama.cpp` stack.
@@ -62,6 +88,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 
 ## Change Guidance
 
+- Read `docs/architecture.md` and `native/README.md` before changing native ownership, interop, or concurrency.
 - Prefer existing `Makefile` and project entry points over one-off scripts.
 - Keep responsibilities separated by layer:
   - native adapter: ABI-safe interop with `llama.cpp`
@@ -78,6 +105,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 
 ## Testing Expectations
 
+- Run focused checks while iterating, then run the required checks once at the end. Repeat them only after further changes or when investigating a failure.
 - For managed-only changes, start with `dotnet test src/llama-runtime.slnx --no-restore`.
 - For changes affecting packaging, startup, or native interop, also run the relevant `make` targets.
 - Native integration tests require vendored artifacts from `make init` and a valid GGUF referenced by `MODEL_PATH`.

@@ -29,8 +29,6 @@ public sealed class LlamaSessionTests
             .Returns(contextHandle);
         native.Setup(n => n.GetContextMetadata(contextHandle))
             .Returns(new NativeContextMetadata(4096));
-        native.Setup(n => n.CountTokens(contextHandle, "prompt"))
-            .Returns(2);
         native.Setup(n => n.Infer(
                 contextHandle,
                 "prompt",
@@ -43,13 +41,9 @@ public sealed class LlamaSessionTests
                 cts.Token))
             .Returns(new NativeInferenceResult("ok", 2, 4, 6));
 
-        using var contextManager = new LlamaContextManager(
-            native.Object,
-            Options.Create(new InferenceOptions { WorkerCount = 1 }),
-            NullLogger<LlamaContextManager>.Instance);
         using var provider = new LlamaProvider(
             native.Object,
-            contextManager,
+            Options.Create(new InferenceOptions { WorkerCount = 1 }),
             Options.Create(new LlamaNativeOptions
             {
                 NativeLibraryPath = "test-native",
@@ -58,15 +52,11 @@ public sealed class LlamaSessionTests
             }),
             NullLogger<LlamaProvider>.Instance);
 
-        var model = await provider.LoadModelAsync("model.gguf");
-        var result = await provider.InferAsync(
-            model,
-            "prompt",
-            cts.Token,
-            responseFormat: InferenceResponseFormat.Text,
-            generationOptions: generationOptions);
+        await using var model = await provider.LoadModelAsync("model.gguf");
+        var result = await provider.InferAsync(model, new PreparedGenerationRequest("prompt", generationOptions), cts.Token);
 
         Assert.Equal("ok", result.Content);
         native.VerifyAll();
+        native.Verify(n => n.CountTokens(It.IsAny<LlamaContextHandle>(), It.IsAny<string>()), Times.Never);
     }
 }

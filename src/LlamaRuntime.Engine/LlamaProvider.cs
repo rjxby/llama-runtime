@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using LlamaRuntime.Engine.Contracts;
+using LlamaRuntime.Engine.Contracts.Configuration;
 using LlamaRuntime.Native.Contracts.Configuration;
 using LlamaRuntime.Native.Contracts;
 
@@ -10,19 +11,19 @@ namespace LlamaRuntime.Engine;
 public sealed class LlamaProvider : ILlamaProvider
 {
     private readonly ILlamaNative _native;
-    private readonly ILlamaContextManager _contextManager;
+    private readonly int _poolSize;
     private readonly ILogger<LlamaProvider> _logger;
     private readonly LlamaNativeOptions _nativeOptions;
     private bool _disposed;
 
     public LlamaProvider(
         ILlamaNative native,
-        ILlamaContextManager contextManager,
+        IOptions<InferenceOptions> inferenceOptions,
         IOptions<LlamaNativeOptions> nativeOptions,
         ILogger<LlamaProvider> logger)
     {
         _native = native ?? throw new ArgumentNullException(nameof(native));
-        _contextManager = contextManager ?? throw new ArgumentNullException(nameof(contextManager));
+        _poolSize = inferenceOptions?.Value.WorkerCount ?? throw new ArgumentNullException(nameof(inferenceOptions));
         _nativeOptions = nativeOptions?.Value ?? throw new ArgumentNullException(nameof(nativeOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -30,7 +31,11 @@ public sealed class LlamaProvider : ILlamaProvider
     public Task<IEngineModel> LoadModelAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (string.IsNullOrEmpty(path)) throw new ArgumentException("Path is null or empty", nameof(path));
+        if (string.IsNullOrEmpty(path))
+        {
+            throw new ArgumentException("Path is null or empty", nameof(path));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         LlamaModelHandle? modelHandle = null;
@@ -49,8 +54,7 @@ public sealed class LlamaProvider : ILlamaProvider
             ValidateRequestedContext(path, contextMetadata.ContextSize);
             var metadata = CreateModelMetadata(nativeMetadata, contextMetadata);
 
-            var model = new EngineModel(path, modelHandle, metadata);
-            _contextManager.PrimeModelContext(model, probeContextHandle);
+            var model = new EngineModel(path, modelHandle, metadata, _native, _poolSize, probeContextHandle);
             probeContextHandle = null;
             modelHandle = null;
             _logger.LogInformation(
@@ -82,142 +86,102 @@ public sealed class LlamaProvider : ILlamaProvider
         }
     }
 
-    public Task UnloadModelAsync(IEngineModel model, CancellationToken cancellationToken = default)
+    public async Task UnloadModelAsync(IEngineModel model, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (model == null) return Task.CompletedTask;
+        if (model == null)
+        {
+            return;
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
-        _contextManager.ReleaseModelResources(model);
-
-        try { model.Dispose(); }
-        catch (Exception ex) { _logger.LogWarning(ex, "Failed disposing model {Path}", model.SourcePath); }
-        return Task.CompletedTask;
+        await model.DisposeAsync().ConfigureAwait(false);
     }
 
     public async Task<int> CountTokensAsync(IEngineModel model, string prompt, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (model == null) throw new ArgumentNullException(nameof(model));
-        if (prompt == null) throw new ArgumentNullException(nameof(prompt));
+        if (model == null)
+        {
+            throw new ArgumentNullException(nameof(model));
+        }
 
-        await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
+        if (prompt == null)
+        {
+            throw new ArgumentNullException(nameof(prompt));
+        }
+
+        await using var session = await model.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
         return await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<InferenceResult> InferAsync(
         IEngineModel model,
-        string prompt,
-        CancellationToken cancellationToken = default,
-        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null,
-        InferenceGenerationOptions? generationOptions = null)
+        PreparedGenerationRequest request,
+        CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (model == null) throw new ArgumentNullException(nameof(model));
-        if (prompt == null) throw new ArgumentNullException(nameof(prompt));
-        var effectiveGenerationOptions = generationOptions ?? CreateDefaultGenerationOptions();
-        var sessionGenerationOptions = generationOptions;
-
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(request);
         try
         {
-            await using var session = await _contextManager.CreateSessionAsync(model, cancellationToken).ConfigureAwait(false);
-            return await InferContentAsync(
-                    model,
-                    session,
-                    prompt,
-                    cancellationToken,
-                    responseFormat,
-                    jsonSchema,
-                    effectiveGenerationOptions,
-                    sessionGenerationOptions)
-                .ConfigureAwait(false);
-        }
-        catch (NativeException ex)
-        {
-            throw new InferenceException(CreateInferenceMessage(ex), ex);
-        }
-    }
-
-    private async Task<InferenceResult> InferContentAsync(
-        IEngineModel model,
-        IInferenceSession session,
-        string prompt,
-        CancellationToken cancellationToken,
-        InferenceResponseFormat responseFormat,
-        string? jsonSchema,
-        InferenceGenerationOptions generationOptions,
-        InferenceGenerationOptions? sessionGenerationOptions)
-    {
-        try
-        {
-            var promptTokens = await session.CountTokensAsync(prompt, cancellationToken).ConfigureAwait(false);
-            EnsurePromptFits(model, promptTokens, generationOptions);
-
-            var structuredOutput = responseFormat == InferenceResponseFormat.Json
-                ? JsonStructuredOutput.Parse(jsonSchema)
-                : null;
-            var grammar = structuredOutput?.Grammar;
-            var result = sessionGenerationOptions is null
-                ? await session.InferAsync(prompt, cancellationToken, responseFormat, grammar).ConfigureAwait(false)
-                : await session.InferAsync(prompt, cancellationToken, responseFormat, grammar, sessionGenerationOptions).ConfigureAwait(false);
-            if (responseFormat == InferenceResponseFormat.Json)
+            await using var session = await model.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+            var format = request.Constraint == null ? InferenceResponseFormat.Text : InferenceResponseFormat.Json;
+            var result = await session.InferAsync(request.Prompt, cancellationToken, format,
+                request.Constraint?.Grammar, request.Generation).ConfigureAwait(false);
+            if (request.Constraint != null)
             {
-                structuredOutput!.ValidateOutput(result.Content);
-                return result;
+                request.Constraint.ValidateOutput(result.Content);
             }
-
-            if (string.IsNullOrWhiteSpace(result.Content))
+            else if (string.IsNullOrWhiteSpace(result.Content))
             {
                 throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
             }
 
             return result;
         }
+        catch (NativePromptBudgetExceededException ex)
+        {
+            var reservedOutputTokens = Math.Max(1, request.Generation.MaxOutputTokens);
+            var effectiveContextSize = model.Metadata.ContextSize;
+            var maxInputTokens = Math.Max(1, effectiveContextSize - reservedOutputTokens);
+            throw new PromptBudgetExceededException(
+                $"Prompt exceeds input budget: tokenizer reported {ex.PromptTokens} tokens but only {maxInputTokens} are allowed (context {effectiveContextSize}, reserved output {reservedOutputTokens}).");
+        }
+        catch (NativeBufferTooSmallException ex)
+        {
+            throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
+        }
+        catch (NativeEmptyOutputException)
+        {
+            throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
+        }
+        catch (NativeCancelledException)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (NativeException ex)
         {
-            if (ex is NativeBufferTooSmallException)
-            {
-                throw new OutputBufferExceededException(CreateInferenceMessage(ex), ex);
-            }
-
-            if (ex is NativeEmptyOutputException)
-            {
-                throw new EmptyInferenceOutputException("Inference returned blank output for a text-generation request.");
-            }
-
-            if (ex is NativeCancelledException)
-            {
-                throw new OperationCanceledException(cancellationToken);
-            }
-
             throw new InferenceException(CreateInferenceMessage(ex), ex);
-        }
-    }
-
-    private void EnsurePromptFits(
-        IEngineModel model,
-        int promptTokens,
-        InferenceGenerationOptions generationOptions)
-    {
-        var reservedOutputTokens = Math.Max(1, generationOptions.MaxOutputTokens);
-        var effectiveContextSize = GetEffectiveContextSize(model);
-        var maxInputTokens = Math.Max(1, effectiveContextSize - reservedOutputTokens);
-        if (promptTokens > maxInputTokens)
-        {
-            throw new PromptBudgetExceededException(
-                $"Prompt exceeds input budget: tokenizer reported {promptTokens} tokens but only {maxInputTokens} are allowed (context {effectiveContextSize}, reserved output {reservedOutputTokens}).");
         }
     }
 
     private void ThrowIfDisposed()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(LlamaProvider));
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(LlamaProvider));
+        }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
     }
 
@@ -231,12 +195,6 @@ public sealed class LlamaProvider : ILlamaProvider
             _ => "Inference failed."
         };
     }
-
-    private InferenceGenerationOptions CreateDefaultGenerationOptions() =>
-        new(
-            Math.Max(1, _nativeOptions.GenerationMaxNewTokens),
-            0.0f,
-            1.0f);
 
     private (LlamaContextHandle ContextHandle, NativeContextMetadata Metadata) CreateProbeContext(
         LlamaModelHandle modelHandle,
@@ -313,9 +271,6 @@ public sealed class LlamaProvider : ILlamaProvider
                 $"Configured context size {_nativeOptions.ContextSize} does not match actual created context size {actualContextSize} for {path}.");
         }
     }
-
-    private int GetEffectiveContextSize(IEngineModel model) =>
-        model.Metadata?.ContextSize > 0 ? model.Metadata.ContextSize : _nativeOptions.ContextSize;
 
     private static ModelMetadata CreateModelMetadata(
         NativeModelMetadata nativeMetadata,

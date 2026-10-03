@@ -42,13 +42,14 @@ private:
   llama_context *ctx_ = nullptr;
 };
 
-} // namespace
+}
 
 Model::~Model() noexcept { free(); }
 
 Error Model::load(const char *path) {
-  if (!path)
+  if (!path) {
     return Error::INVALID_ARG;
+  }
   try {
     llama_model_params p = llama_model_default_params();
     model_ = llama_model_load_from_file(path, p);
@@ -65,8 +66,9 @@ Error Model::load(const char *path) {
 }
 
 Error Model::metadata(llama_adapter_model_metadata_t *metadata) const {
-  if (!model_ || !metadata)
+  if (!model_ || !metadata) {
     return Error::INVALID_ARG;
+  }
 
   metadata->training_context_size = llama_model_n_ctx_train(model_);
   const llama_vocab *model_vocab = vocab();
@@ -82,13 +84,15 @@ void Model::free() {
   }
 }
 
-Context::Context(Model *model) noexcept : model_ref_(model) {}
+Context::Context(Model *model, DecodeFunction decode_function) noexcept
+    : decode_function_(decode_function), model_ref_(model) {}
 
 Context::~Context() noexcept { free(); }
 
 Error Context::init(int n_ctx, int n_batch, int generation_max_new_tokens) {
-  if (!model_ref_ || !model_ref_->handle())
+  if (!model_ref_ || !model_ref_->handle()) {
     return Error::INVALID_ARG;
+  }
   try {
     llama_context_params p = llama_context_default_params();
     p.n_ctx = (uint32_t)n_ctx;
@@ -113,8 +117,9 @@ Error Context::init(int n_ctx, int n_batch, int generation_max_new_tokens) {
 }
 
 Error Context::metadata(llama_adapter_context_metadata_t *metadata) const {
-  if (!ctx_ || !metadata)
+  if (!ctx_ || !metadata) {
     return Error::INVALID_ARG;
+  }
 
   metadata->context_size = static_cast<int32_t>(llama_n_ctx(ctx_));
   return Error::OK;
@@ -158,34 +163,39 @@ bool Context::invoke_abort_callback() {
 bool Context::is_abort_requested() const { return abort_requested_; }
 
 bool Context::tokenize(const char *prompt, std::vector<llama_token> &tokens) {
-  if (!model_ref_ || !model_ref_->handle() || !prompt)
+  if (!model_ref_ || !model_ref_->handle() || !prompt) {
     return false;
+  }
 
   const auto prompt_len = static_cast<int32_t>(std::strlen(prompt));
   const int max_t = std::max(ctx_n_ctx_, static_cast<int>(prompt_len) + 8);
   tokens.resize(max_t);
 
   const llama_vocab *vocab = model_ref_->vocab();
-  if (!vocab)
+  if (!vocab) {
     return false;
+  }
 
   int32_t n = llama_tokenize(vocab, prompt, prompt_len, tokens.data(), max_t,
                              true, false);
 
-  if (n < 0 || n == max_t)
+  if (n < 0 || n == max_t) {
     return false;
+  }
 
   tokens.resize(n);
   return true;
 }
 
 Error Context::count_tokens(const char *prompt, int32_t *token_count) {
-  if (!prompt || !token_count)
+  if (!prompt || !token_count) {
     return Error::INVALID_ARG;
+  }
 
   try {
-    if (!tokenize(prompt, token_buffer_))
+    if (!tokenize(prompt, token_buffer_)) {
       return Error::IO;
+    }
 
     *token_count = static_cast<int32_t>(token_buffer_.size());
     return Error::OK;
@@ -197,11 +207,13 @@ Error Context::count_tokens(const char *prompt, int32_t *token_count) {
 }
 
 bool Context::decode(const std::vector<llama_token> &tokens) {
-  if (!ctx_ || tokens.empty())
+  if (!ctx_ || tokens.empty()) {
     return true;
+  }
 
-  if (invoke_abort_callback())
+  if (invoke_abort_callback()) {
     return false;
+  }
 
   if (ctx_n_ctx_ > 0 &&
       (n_past_ + static_cast<int>(tokens.size())) > ctx_n_ctx_) {
@@ -210,8 +222,9 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
 
   const int batch_size = ctx_n_batch_;
   for (int i = 0; i < (int)tokens.size(); i += batch_size) {
-    if (invoke_abort_callback())
+    if (invoke_abort_callback()) {
       return false;
+    }
 
     int n_tokens = std::min(batch_size, (int)tokens.size() - i);
 
@@ -229,135 +242,115 @@ bool Context::decode(const std::vector<llama_token> &tokens) {
     b.seq_id = nullptr;
     b.logits = nullptr;
 
-    if (llama_decode(ctx_, b) < 0) {
+    if (!decode_batch(b)) {
       return false;
     }
-
-    n_past_ += n_tokens;
   }
 
+  return true;
+}
+
+bool Context::decode_batch(llama_batch batch) {
+  if (invoke_abort_callback()) {
+    return false;
+  }
+  const int32_t result = decode_function_(ctx_, batch);
+  if (result == 2) {
+    abort_requested_ = true;
+  }
+  if (result != 0) {
+    return false;
+  }
+  n_past_ += batch.n_tokens;
   return true;
 }
 
 bool Context::sample_token(
-    llama_sampler *sampler, llama_sampler *grammar_sampler,
+    llama_sampler *sampler,
     llama_token &token,
     std::vector<llama_token> &generated_tokens) {
-  if (!ctx_ || !model_ref_ || !model_ref_->handle())
+  if (!ctx_ || !model_ref_ || !model_ref_->handle()) {
     return false;
-  if (invoke_abort_callback())
+  }
+  if (invoke_abort_callback()) {
     return false;
+  }
 
   const llama_vocab *vocab = model_ref_->vocab();
-  if (!vocab)
+  if (!vocab) {
     return false;
+  }
 
   const llama_token eos = llama_vocab_eos(vocab);
 
-  if (!grammar_sampler) {
-    token = llama_sampler_sample(sampler, ctx_, -1);
-    if (token == eos || llama_vocab_is_eog(vocab, token))
-      return true;
-
-    generated_tokens.push_back(token);
-
-    llama_sampler_accept(sampler, token);
-    llama_batch single = llama_batch_get_one(&token, 1);
-    if (invoke_abort_callback())
-      return false;
-    if (llama_decode(ctx_, single) < 0)
-      return false;
-    n_past_++;
-
+  token = llama_sampler_sample(sampler, ctx_, -1);
+  if (token == eos || llama_vocab_is_eog(vocab, token)) {
     return true;
   }
-
-  const float *logits = llama_get_logits_ith(ctx_, -1);
-  if (!logits)
-    return false;
-
-  const int32_t n_vocab = llama_vocab_n_tokens(vocab);
-  sample_candidates_.resize(static_cast<size_t>(n_vocab));
-  for (llama_token token_id = 0; token_id < n_vocab; ++token_id) {
-    sample_candidates_[static_cast<size_t>(token_id)] =
-        llama_token_data{token_id, logits[token_id], 0.0f};
-  }
-
-  llama_token_data_array candidates{
-      sample_candidates_.data(), sample_candidates_.size(), -1, false};
-
-  llama_sampler_apply(grammar_sampler, &candidates);
-  llama_sampler_apply(sampler, &candidates);
-  if (candidates.selected < 0 ||
-      static_cast<size_t>(candidates.selected) >= candidates.size)
-    return false;
-
-  token = candidates.data[candidates.selected].id;
-  if (token == eos || llama_vocab_is_eog(vocab, token))
-    return true;
 
   generated_tokens.push_back(token);
-
-  llama_sampler_accept(grammar_sampler, token);
-  llama_sampler_accept(sampler, token);
-  llama_batch single = llama_batch_get_one(&token, 1);
-  if (invoke_abort_callback())
-    return false;
-  if (llama_decode(ctx_, single) < 0)
-    return false;
-  n_past_++;
-
-  return true;
+  return decode_batch(llama_batch_get_one(&token, 1));
 }
 
 bool Context::generate_tokens(
     std::vector<llama_token> &generated_tokens, const GenParams &params) {
-  if (!ctx_ || !model_ref_ || !model_ref_->handle())
+  if (!ctx_ || !model_ref_ || !model_ref_->handle()) {
     return false;
+  }
 
   auto sampler_params = llama_sampler_chain_default_params();
   llama_sampler_ptr sampler(llama_sampler_chain_init(sampler_params));
-  if (!sampler)
+  if (!sampler) {
     return false;
+  }
 
   llama_sampler *grammar_sampler_raw = nullptr;
   if (!create_structured_output_sampler(
           &grammar_sampler_raw, model_ref_->vocab(), params.response_format,
-          params.grammar.c_str()))
+          params.grammar.c_str())) {
     return false;
-  llama_sampler_ptr grammar_sampler(grammar_sampler_raw);
+  }
+  if (grammar_sampler_raw) {
+    llama_sampler_chain_add(sampler.get(), grammar_sampler_raw);
+  }
 
   const float temperature =
       params.temperature > 0.0f ? params.temperature : 0.0f;
   const float top_p =
       (params.top_p > 0.0f && params.top_p <= 1.0f) ? params.top_p : 1.0f;
   const llama_vocab *vocab = model_ref_->vocab();
-  if (!vocab)
+  if (!vocab) {
     return false;
+  }
 
   if (temperature > 0.0f) {
     llama_sampler *top_k_sampler = llama_sampler_init_top_k(40);
-    if (!top_k_sampler)
+    if (!top_k_sampler) {
       return false;
+    }
     llama_sampler_chain_add(sampler.get(), top_k_sampler);
     if (top_p < 1.0f) {
       llama_sampler *top_p_sampler = llama_sampler_init_top_p(top_p, 1);
-      if (!top_p_sampler)
+      if (!top_p_sampler) {
         return false;
+      }
       llama_sampler_chain_add(sampler.get(), top_p_sampler);
     }
     llama_sampler *temperature_sampler = llama_sampler_init_temp(temperature);
-    if (!temperature_sampler)
+    if (!temperature_sampler) {
       return false;
+    }
     llama_sampler_chain_add(sampler.get(), temperature_sampler);
     llama_sampler *dist_sampler = llama_sampler_init_dist(params.seed);
-    if (!dist_sampler)
+    if (!dist_sampler) {
       return false;
+    }
     llama_sampler_chain_add(sampler.get(), dist_sampler);
   } else {
     llama_sampler *greedy_sampler = llama_sampler_init_greedy();
-    if (!greedy_sampler)
+    if (!greedy_sampler) {
       return false;
+    }
     llama_sampler_chain_add(sampler.get(), greedy_sampler);
   }
 
@@ -365,16 +358,19 @@ bool Context::generate_tokens(
   generated_tokens.reserve((size_t)params.max_new_tokens);
 
   for (int i = 0; i < params.max_new_tokens; ++i) {
-    if (n_past_ >= ctx_n_ctx_)
+    if (n_past_ >= ctx_n_ctx_) {
       break;
+    }
 
     llama_token token = LLAMA_TOKEN_NULL;
-    if (!sample_token(sampler.get(), grammar_sampler.get(), token,
-                      generated_tokens))
+    if (!sample_token(sampler.get(), token,
+                      generated_tokens)) {
       return false;
+    }
     if (token == llama_vocab_eos(model_ref_->vocab()) ||
-        llama_vocab_is_eog(model_ref_->vocab(), token))
+        llama_vocab_is_eog(model_ref_->vocab(), token)) {
       break;
+    }
   }
 
   return true;
@@ -383,12 +379,14 @@ bool Context::generate_tokens(
 bool Context::detokenize(
     const std::vector<llama_token> &tokens, std::string &out) {
   out.clear();
-  if (tokens.empty())
+  if (tokens.empty()) {
     return true;
+  }
 
   const llama_vocab *vocab = model_ref_->vocab();
-  if (!vocab)
+  if (!vocab) {
     return false;
+  }
 
   std::vector<char> buffer(std::max<size_t>(64, tokens.size() * 8));
   while (true) {
@@ -403,8 +401,9 @@ bool Context::detokenize(
     }
 
     const int32_t required = -written;
-    if (required <= static_cast<int32_t>(buffer.size()))
+    if (required <= static_cast<int32_t>(buffer.size())) {
       return false;
+    }
 
     buffer.resize(static_cast<size_t>(required));
   }
@@ -413,8 +412,9 @@ bool Context::detokenize(
 Error Context::infer(
     const char *prompt, char *out, size_t out_size,
     llama_adapter_infer_result_t *result, const GenParams &params) {
-  if (!ctx_ || !prompt)
+  if (!ctx_ || !prompt) {
     return Error::INVALID_ARG;
+  }
 
   reset();
   abort_callback_ = params.abort_callback;
@@ -422,11 +422,13 @@ Error Context::infer(
   AbortCallbackScope abort_scope(this, ctx_, params);
 
   try {
-    if (invoke_abort_callback())
+    if (invoke_abort_callback()) {
       return Error::ABORTED;
+    }
 
-    if (!tokenize(prompt, token_buffer_))
+    if (!tokenize(prompt, token_buffer_)) {
       return Error::IO;
+    }
 
     if (result) {
       result->prompt_tokens = static_cast<int32_t>(token_buffer_.size());
@@ -436,9 +438,9 @@ Error Context::infer(
     }
 
     if (ctx_n_ctx_ > 0 &&
-        (static_cast<int>(token_buffer_.size()) + params.max_new_tokens) >
+        (static_cast<int64_t>(token_buffer_.size()) + params.max_new_tokens) >
             ctx_n_ctx_) {
-      return Error::INVALID_ARG;
+      return Error::PROMPT_BUDGET;
     }
 
     if (!decode(token_buffer_)) {
@@ -450,12 +452,17 @@ Error Context::infer(
       return is_abort_requested() ? Error::ABORTED : Error::IO;
     }
 
-    if (generated_tokens.empty())
+    if (invoke_abort_callback()) {
+      return Error::ABORTED;
+    }
+    if (generated_tokens.empty()) {
       return Error::EMPTY_OUTPUT;
+    }
 
     std::string generated;
-    if (!detokenize(generated_tokens, generated))
+    if (!detokenize(generated_tokens, generated)) {
       return Error::IO;
+    }
 
     if (result) {
       result->output_tokens = static_cast<int32_t>(generated_tokens.size());
@@ -482,8 +489,9 @@ Error Context::infer(
       result->total_tokens = 0;
       result->output_bytes = 0;
     }
-    if (out && out_size > 0)
+    if (out && out_size > 0) {
       out[0] = '\0';
+    }
     return Error::OUT_OF_MEMORY;
   } catch (...) {
     if (result) {
@@ -492,8 +500,9 @@ Error Context::infer(
       result->total_tokens = 0;
       result->output_bytes = 0;
     }
-    if (out && out_size > 0)
+    if (out && out_size > 0) {
       out[0] = '\0';
+    }
     return Error::UNKNOWN;
   }
 }
@@ -502,4 +511,4 @@ const char *source_version() noexcept {
   return LLAMA_ADAPTER_SOURCE_VERSION;
 }
 
-} // namespace llama_adapter
+}

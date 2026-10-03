@@ -7,9 +7,6 @@ public interface IInferenceSession : IAsyncDisposable
 {
     Task<int> CountTokensAsync(string prompt, CancellationToken ct = default);
 
-    /// <summary>
-    /// Executes inference with the requested output constraint within this isolated context.
-    /// </summary>
     Task<InferenceResult> InferAsync(
         string prompt,
         CancellationToken ct = default,

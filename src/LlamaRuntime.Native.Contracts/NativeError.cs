@@ -14,5 +14,6 @@ public enum NativeError : int
     BufferTooSmall = 9,
     EmptyOutput = 10,
     Cancelled = 11,
+    PromptBudgetExceeded = 12,
     Unknown = 100
 }

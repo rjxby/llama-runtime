@@ -8,6 +8,7 @@ internal sealed class LlamaSession : IInferenceSession
     private readonly ILlamaNative _native;
     private readonly LlamaContextHandle _handle;
     private readonly Action<LlamaContextHandle> _onDispose;
+    private readonly Lock _gate = new();
     private bool _disposed;
 
     public LlamaSession(ILlamaNative native, LlamaContextHandle handle, Action<LlamaContextHandle> onDispose)
@@ -24,39 +25,51 @@ internal sealed class LlamaSession : IInferenceSession
         string? grammar = null,
         InferenceGenerationOptions? generationOptions = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
-        ct.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
+            ct.ThrowIfCancellationRequested();
 
-        var nativeResponseFormat = MapResponseFormat(responseFormat);
-        var nativeGenerationOptions = generationOptions is null
-            ? null
-            : new NativeGenerationOptions(
-                generationOptions.MaxOutputTokens,
-                generationOptions.Temperature,
-                generationOptions.TopP);
-        var result = _native.Infer(_handle, prompt, nativeResponseFormat, grammar, nativeGenerationOptions, ct);
-        return Task.FromResult(new InferenceResult(
-            result.Content,
-            result.InputTokens,
-            result.OutputTokens,
-            result.TotalTokens));
+            var nativeResponseFormat = MapResponseFormat(responseFormat);
+            var nativeGenerationOptions = generationOptions is null
+                ? null
+                : new NativeGenerationOptions(
+                    generationOptions.MaxOutputTokens,
+                    generationOptions.Temperature,
+                    generationOptions.TopP);
+            var result = _native.Infer(_handle, prompt, nativeResponseFormat, grammar, nativeGenerationOptions, ct);
+            return Task.FromResult(new InferenceResult(
+                result.Content,
+                result.InputTokens,
+                result.OutputTokens,
+                result.TotalTokens));
+        }
     }
 
     public Task<int> CountTokensAsync(string prompt, CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
-        ct.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, typeof(LlamaSession));
+            ct.ThrowIfCancellationRequested();
 
-        return Task.FromResult(_native.CountTokens(_handle, prompt));
+            return Task.FromResult(_native.CountTokens(_handle, prompt));
+        }
     }
 
     public ValueTask DisposeAsync()
     {
-        if (_disposed) return ValueTask.CompletedTask;
-        _disposed = true;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return ValueTask.CompletedTask;
+            }
 
-        _onDispose(_handle);
-        return ValueTask.CompletedTask;
+            _disposed = true;
+            _onDispose(_handle);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static NativeInferenceResponseFormat MapResponseFormat(InferenceResponseFormat responseFormat) =>

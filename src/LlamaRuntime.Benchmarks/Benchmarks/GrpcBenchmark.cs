@@ -11,7 +11,6 @@ public static class GrpcBenchmark
     {
         logger.LogInformation("=== gRPC benchmark (out-of-process) ===");
 
-        // API Key is already validated by ConfigurationLoader
         var apiKey = options.ApiKey!;
 
         var httpClient = new HttpClient

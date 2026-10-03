@@ -19,7 +19,11 @@ internal sealed class NativeLoader : IDisposable
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _logicalName = logicalName ?? throw new ArgumentNullException(nameof(logicalName));
-        if (string.IsNullOrWhiteSpace(libraryPath)) throw new ArgumentException(nameof(libraryPath));
+        if (string.IsNullOrWhiteSpace(libraryPath))
+        {
+            throw new ArgumentException(nameof(libraryPath));
+        }
+
         _libraryPath = libraryPath;
 
         EnsureLoaded();
@@ -82,8 +86,12 @@ internal sealed class NativeLoader : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
-        _logger.LogDebug("NativeLoader disposed for {Name}; native library remains loaded for process lifetime", _logicalName);
+        _logger.LogDebug(nameof(NativeLoader) + " disposed for {Name}; native library remains loaded for process lifetime", _logicalName);
     }
 }

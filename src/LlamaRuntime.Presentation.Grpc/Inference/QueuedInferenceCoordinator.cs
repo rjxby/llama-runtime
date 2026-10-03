@@ -14,15 +14,12 @@ public sealed class QueuedInferenceCoordinator : IInferenceCoordinator
     }
 
     public Task<InferenceResult> InferAsync(
-        string prompt,
+        PreparedGenerationRequest request,
         CancellationToken cancellationToken,
-        string? requestId = null,
-        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null,
-        InferenceGenerationOptions? generationOptions = null) =>
+        string? requestId = null) =>
         _queue.EnqueueAsync(
             InferenceWorkQueue.InferenceOperation.Infer,
-            (model, ct) => _provider.InferAsync(model, prompt, ct, responseFormat, jsonSchema, generationOptions),
+            (model, ct) => _provider.InferAsync(model, request, ct),
             cancellationToken,
             requestId);
 

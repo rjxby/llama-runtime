@@ -54,8 +54,6 @@ public sealed class JsonStructuredOutput
         return new JsonStructuredOutput(schema, new GbnfBuilder().Build(schema));
     }
 
-    public static void ValidateSchema(string? schemaJson) => Parse(schemaJson);
-
     public void ValidateOutput(string content)
     {
         JsonDocument outputDocument;
@@ -137,8 +135,7 @@ public sealed class JsonStructuredOutput
     {
         public static StrictSchemaNode Parse(JsonElement schema)
         {
-            var parsed = ParseElement(schema, isRoot: true);
-            return parsed;
+            return ParseElement(schema, isRoot: true);
         }
 
         private static StrictSchemaNode ParseElement(JsonElement schema, bool isRoot)

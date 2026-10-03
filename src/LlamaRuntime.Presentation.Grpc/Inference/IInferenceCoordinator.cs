@@ -5,12 +5,9 @@ namespace LlamaRuntime.Presentation.Grpc.Inference;
 public interface IInferenceCoordinator
 {
     Task<InferenceResult> InferAsync(
-        string prompt,
+        PreparedGenerationRequest request,
         CancellationToken cancellationToken,
-        string? requestId = null,
-        InferenceResponseFormat responseFormat = InferenceResponseFormat.Text,
-        string? jsonSchema = null,
-        InferenceGenerationOptions? generationOptions = null);
+        string? requestId = null);
 
     Task<int> CountTokensAsync(string prompt, CancellationToken cancellationToken, string? requestId = null);
 }

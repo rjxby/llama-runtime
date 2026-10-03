@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LlamaRuntime.Presentation.Grpc\LlamaRuntime.Presentation.Grpc.csproj" />
+    <ProjectReference Include="..\LlamaRuntime.Benchmarks\LlamaRuntime.Benchmarks.csproj" Aliases="benchmark" />
     <ProjectReference Include="..\LlamaRuntime.Common.Tests\LlamaRuntime.Common.Tests.csproj" />
   </ItemGroup>
 </Project>

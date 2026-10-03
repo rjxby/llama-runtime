@@ -1,173 +1,155 @@
-using Microsoft.Extensions.Logging;
-using System.Collections.Concurrent;
-
 using LlamaRuntime.Native.Contracts;
 
 namespace LlamaRuntime.Engine;
 
-internal sealed class ContextPool : IDisposable
+internal sealed class ContextPool
 {
+    private readonly Lock _gate = new();
     private readonly ILlamaNative _native;
     private readonly LlamaModelHandle _modelHandle;
-    private readonly int _maxSize;
-    private readonly ConcurrentQueue<LlamaContextHandle> _queue = new();
-    private readonly SemaphoreSlim _semaphore;
-    private readonly ILogger _logger;
-    private int _contextCount;
-    private bool _disposed;
+    private readonly Queue<LlamaContextHandle> _idle = new();
+    private readonly SemaphoreSlim _available;
+    private readonly CancellationTokenSource _closed = new();
+    private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _acquiring;
+    private int _leased;
+    private bool _closing;
+    private bool _idleDisposed;
 
-    public ContextPool(ILlamaNative native, LlamaModelHandle modelHandle, int maxSize, ILogger logger)
+    public ContextPool(ILlamaNative native, LlamaModelHandle modelHandle, int maxSize,
+        LlamaContextHandle? initialContext)
     {
-        _native = native ?? throw new ArgumentNullException(nameof(native));
-        _modelHandle = modelHandle ?? throw new ArgumentNullException(nameof(modelHandle));
-        _maxSize = Math.Max(1, maxSize);
-        _semaphore = new SemaphoreSlim(_maxSize, _maxSize);
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _native = native;
+        _modelHandle = modelHandle;
+        _available = new SemaphoreSlim(maxSize, maxSize);
+        if (initialContext != null)
+        {
+            _idle.Enqueue(initialContext);
+        }
     }
 
     public async ValueTask<LlamaContextHandle> AcquireAsync(CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        while (_queue.TryDequeue(out var ctx))
+        CancellationToken closedToken;
+        lock (_gate)
         {
-            if (ctx == null) continue;
-            if (ctx.IsInvalid)
-            {
-                DisposeTrackedContext(ctx);
-                continue;
-            }
-
-            try
-            {
-                _native.ResetContext(ctx);
-                return ctx;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to reset pooled context. Disposing and creating new one.");
-                DisposeTrackedContext(ctx);
-                continue;
-            }
+            ObjectDisposedException.ThrowIf(_closing, this);
+            _acquiring++;
+            closedToken = _closed.Token;
         }
 
-        var reservedContextSlot = false;
+        var reserved = false;
+        LlamaContextHandle? context = null;
         try
         {
-            ReserveContextSlot();
-            reservedContextSlot = true;
-            var newCtx = _native.CreateContext(_modelHandle);
-            if (newCtx == null)
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, closedToken);
+            await _available.WaitAsync(wait.Token).ConfigureAwait(false);
+            reserved = true;
+            lock (_gate)
             {
-                ReleaseContextSlot();
-                reservedContextSlot = false;
-                throw new InvalidOperationException("native returned null context handle");
-            }
-            return newCtx;
-        }
-        catch
-        {
-            if (reservedContextSlot)
-            {
-                ReleaseContextSlot();
+                ObjectDisposedException.ThrowIf(_closing, this);
+                if (_idle.TryDequeue(out var existing))
+                {
+                    context = existing;
+                }
             }
 
-            _semaphore.Release();
-            throw;
-        }
-    }
-
-    public void Prime(LlamaContextHandle ctx)
-    {
-        ThrowIfDisposed();
-        ArgumentNullException.ThrowIfNull(ctx);
-
-        if (ctx.IsInvalid)
-        {
-            try { ctx.Dispose(); } catch { }
-            return;
-        }
-
-        if (!TryReserveContextSlot())
-        {
-            _logger.LogWarning("Discarding primed context because the context pool is already at capacity.");
-            try { ctx.Dispose(); } catch { }
-            return;
-        }
-
-        _queue.Enqueue(ctx);
-    }
-
-    public void Release(LlamaContextHandle ctx)
-    {
-        if (ctx == null) return;
-        if (_disposed)
-        {
-            try { ctx.Dispose(); } catch { }
-            ReleaseContextSlot();
-            return;
-        }
-
-        if (ctx.IsInvalid)
-        {
-            DisposeTrackedContext(ctx);
-            _semaphore.Release();
-            return;
-        }
-
-        _queue.Enqueue(ctx);
-        _semaphore.Release();
-    }
-
-    private void ThrowIfDisposed()
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(ContextPool));
-    }
-
-    private bool TryReserveContextSlot()
-    {
-        while (true)
-        {
-            var current = Volatile.Read(ref _contextCount);
-            if (current >= _maxSize)
+            context ??= _native.CreateContext(_modelHandle);
+            if (context == null || context.IsInvalid || context.IsClosed)
             {
-                return false;
+                throw new InvalidOperationException("Native runtime returned an invalid context handle.");
             }
 
-            if (Interlocked.CompareExchange(ref _contextCount, current + 1, current) == current)
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
             {
-                return true;
+                ObjectDisposedException.ThrowIf(_closing, this);
+                _leased++;
+            }
+            var result = context;
+            context = null;
+            reserved = false;
+            return result;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && closedToken.IsCancellationRequested)
+        {
+            throw new ObjectDisposedException(nameof(ContextPool));
+        }
+        finally
+        {
+            context?.Dispose();
+            lock (_gate)
+            {
+                if (reserved)
+                {
+                    _available.Release();
+                }
+
+                _acquiring--;
+                CompleteClose();
             }
         }
     }
 
-    private void ReserveContextSlot()
+    public void Release(LlamaContextHandle context)
     {
-        if (!TryReserveContextSlot())
+        lock (_gate)
         {
-            throw new InvalidOperationException("Context pool is at capacity but no reusable context was available.");
+            if (!_closing && !context.IsInvalid && !context.IsClosed)
+            {
+                _idle.Enqueue(context);
+                _leased--;
+                _available.Release();
+                return;
+            }
+        }
+        // Keep the lease counted until native context destruction has finished.
+        context.Dispose();
+        lock (_gate)
+        {
+            _leased--;
+            _available.Release();
+            CompleteClose();
         }
     }
 
-    private void ReleaseContextSlot() => Interlocked.Decrement(ref _contextCount);
-
-    private void DisposeTrackedContext(LlamaContextHandle ctx)
+    public Task CloseAsync()
     {
-        try { ctx.Dispose(); } catch { }
-        ReleaseContextSlot();
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-
-        while (_queue.TryDequeue(out var ctx))
+        LlamaContextHandle[] idle;
+        lock (_gate)
         {
-            DisposeTrackedContext(ctx);
+            if (_closing)
+            {
+                return _drained.Task;
+            }
+
+            _closing = true;
+            idle = _idle.ToArray();
+            _idle.Clear();
+        }
+        _closed.Cancel();
+        foreach (var context in idle)
+        {
+            context.Dispose();
         }
 
-        _semaphore.Dispose();
+        lock (_gate)
+        {
+            _idleDisposed = true;
+            CompleteClose();
+        }
+        return _drained.Task;
+    }
+
+    private void CompleteClose()
+    {
+        if (!_closing || !_idleDisposed || _acquiring != 0 || _leased != 0)
+        {
+            return;
+        }
+
+        _available.Dispose();
+        _closed.Dispose();
+        _drained.TrySetResult();
     }
 }

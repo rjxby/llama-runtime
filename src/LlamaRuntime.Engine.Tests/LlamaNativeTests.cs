@@ -35,7 +35,7 @@ public sealed class LlamaNativeTests
                 "prompt",
                 generationOptions: options)));
 
-        Assert.Contains("MaxNewTokens", ex.Message);
+        Assert.Contains(nameof(NativeGenerationOptions.MaxNewTokens), ex.Message);
     }
 
     private static NativeGenerationOptions CreateUncheckedNativeGenerationOptions(

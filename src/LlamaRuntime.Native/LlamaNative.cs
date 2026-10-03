@@ -23,7 +23,9 @@ public sealed class LlamaNative : ILlamaNative
 
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         if (string.IsNullOrWhiteSpace(_options.NativeLibraryPath))
+        {
             throw new ArgumentException($"Library path must be provided", nameof(_options.NativeLibraryPath));
+        }
 
         _loader = new NativeLoader(_options.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
         NativeRuntimeBindings.Initialize(_loader.Handle);
@@ -37,28 +39,38 @@ public sealed class LlamaNative : ILlamaNative
         var sb = new StringBuilder(_options.InferenceBufferSize);
         var bufferSize = (UIntPtr)sb.Capacity;
         var rc = NativeMethods.llama_adapter_get_version(sb, bufferSize);
-        ThrowIfError(rc, "GetVersion");
+        ThrowIfError(rc, nameof(GetVersion));
         return sb.ToString();
     }
 
     public LlamaModelHandle LoadModel(string path)
     {
         EnsureNotDisposed();
-        if (string.IsNullOrEmpty(path)) throw new NativeInvalidArgumentException("path is null or empty");
+        if (string.IsNullOrEmpty(path))
+        {
+            throw new NativeInvalidArgumentException($"{nameof(path)} is null or empty");
+        }
 
         var rc = NativeMethods.llama_load_model(path, out var ptr);
-        ThrowIfError(rc, "LoadModel");
-        if (ptr == IntPtr.Zero) throw new NativeLoadModelException("native returned null model pointer");
+        ThrowIfError(rc, nameof(LoadModel));
+        if (ptr == IntPtr.Zero)
+        {
+            throw new NativeLoadModelException("native returned null model pointer");
+        }
+
         return LlamaModelHandle.FromIntPtr(ptr);
     }
 
     public NativeModelMetadata GetModelMetadata(LlamaModelHandle model)
     {
         EnsureNotDisposed();
-        if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
+        if (model == null || model.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(model)} is null or invalid");
+        }
 
         var rc = NativeMethods.llama_model_get_metadata(model, out var metadata);
-        ThrowIfError(rc, "GetModelMetadata");
+        ThrowIfError(rc, nameof(GetModelMetadata));
 
         var tokenizerType = Enum.IsDefined(typeof(NativeTokenizerType), metadata.TokenizerType)
             ? (NativeTokenizerType)metadata.TokenizerType
@@ -70,10 +82,13 @@ public sealed class LlamaNative : ILlamaNative
     public NativeContextMetadata GetContextMetadata(LlamaContextHandle context)
     {
         EnsureNotDisposed();
-        if (context == null || context.IsInvalid) throw new NativeInvalidArgumentException("context is null or invalid");
+        if (context == null || context.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(context)} is null or invalid");
+        }
 
         var rc = NativeMethods.llama_context_get_metadata(context, out var metadata);
-        ThrowIfError(rc, "GetContextMetadata");
+        ThrowIfError(rc, nameof(GetContextMetadata));
 
         return new NativeContextMetadata(metadata.ContextSize);
     }
@@ -87,15 +102,23 @@ public sealed class LlamaNative : ILlamaNative
     public LlamaContextHandle CreateContext(LlamaModelHandle model)
     {
         EnsureNotDisposed();
-        if (model == null || model.IsInvalid) throw new NativeInvalidArgumentException("model is null or invalid");
+        if (model == null || model.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(model)} is null or invalid");
+        }
+
         var rc = NativeMethods.llama_create_context(
             model,
             _options.ContextSize,
             _options.BatchSize,
             _options.GenerationMaxNewTokens,
             out var ptr);
-        ThrowIfError(rc, "CreateContext");
-        if (ptr == IntPtr.Zero) throw new NativeLoadModelException("native returned null context pointer");
+        ThrowIfError(rc, nameof(CreateContext));
+        if (ptr == IntPtr.Zero)
+        {
+            throw new NativeLoadModelException("native returned null context pointer");
+        }
+
         return LlamaContextHandle.FromIntPtr(ptr);
     }
 
@@ -108,19 +131,30 @@ public sealed class LlamaNative : ILlamaNative
     public void ResetContext(LlamaContextHandle ctx)
     {
         EnsureNotDisposed();
-        if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
+        if (ctx == null || ctx.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(ctx)} is null or invalid");
+        }
+
         var rc = NativeMethods.llama_context_reset(ctx);
-        ThrowIfError(rc, "ResetContext");
+        ThrowIfError(rc, nameof(ResetContext));
     }
 
     public int CountTokens(LlamaContextHandle ctx, string prompt)
     {
         EnsureNotDisposed();
-        if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
-        if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
+        if (ctx == null || ctx.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(ctx)} is null or invalid");
+        }
+
+        if (prompt == null)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(prompt)} is null");
+        }
 
         var rc = NativeMethods.llama_count_tokens(ctx, prompt, out var tokenCount);
-        ThrowIfError(rc, "CountTokens");
+        ThrowIfError(rc, nameof(CountTokens));
         return tokenCount;
     }
 
@@ -133,8 +167,16 @@ public sealed class LlamaNative : ILlamaNative
         CancellationToken cancellationToken = default)
     {
         EnsureNotDisposed();
-        if (ctx == null || ctx.IsInvalid) throw new NativeInvalidArgumentException("ctx is null or invalid");
-        if (prompt == null) throw new NativeInvalidArgumentException("prompt is null");
+        if (ctx == null || ctx.IsInvalid)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(ctx)} is null or invalid");
+        }
+
+        if (prompt == null)
+        {
+            throw new NativeInvalidArgumentException($"{nameof(prompt)} is null");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         generationOptions ??= CreateDefaultGenerationOptions();
         ValidateGenerationOptions(generationOptions);
@@ -182,7 +224,12 @@ public sealed class LlamaNative : ILlamaNative
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            ThrowIfError(rc, "Infer");
+            if (rc == (int)NativeError.PromptBudgetExceeded)
+            {
+                throw new NativePromptBudgetExceededException(result.PromptTokens);
+            }
+
+            ThrowIfError(rc, nameof(Infer));
             return new NativeInferenceResult(
                 sb.ToString(),
                 result.PromptTokens,
@@ -234,28 +281,32 @@ public sealed class LlamaNative : ILlamaNative
     {
         if (!GenerationOptionRules.HasPositiveMaxTokens(generationOptions.MaxNewTokens))
         {
-            throw new NativeInvalidArgumentException("Generation MaxNewTokens must be greater than 0.");
+            throw new NativeInvalidArgumentException($"Generation {nameof(NativeGenerationOptions.MaxNewTokens)} must be greater than 0.");
         }
 
         if (!GenerationOptionRules.IsValidTemperature(generationOptions.Temperature))
         {
-            throw new NativeInvalidArgumentException("Generation Temperature must be finite and greater than or equal to 0.");
+            throw new NativeInvalidArgumentException($"Generation {nameof(NativeGenerationOptions.Temperature)} must be finite and greater than or equal to 0.");
         }
 
         if (!GenerationOptionRules.IsValidTopP(generationOptions.TopP))
         {
-            throw new NativeInvalidArgumentException("Generation TopP must be finite, greater than 0, and less than or equal to 1.");
+            throw new NativeInvalidArgumentException($"Generation {nameof(NativeGenerationOptions.TopP)} must be finite, greater than 0, and less than or equal to 1.");
         }
 
         if (!GenerationOptionRules.IsTopPCompatibleWithTemperature(generationOptions.TopP, generationOptions.Temperature))
         {
-            throw new NativeInvalidArgumentException("Generation TopP requires Temperature to be greater than 0.");
+            throw new NativeInvalidArgumentException($"Generation {nameof(NativeGenerationOptions.TopP)} requires {nameof(NativeGenerationOptions.Temperature)} to be greater than 0.");
         }
     }
 
     private static void ThrowIfError(int code, string op)
     {
-        if (code == (int)NativeError.Ok) return;
+        if (code == (int)NativeError.Ok)
+        {
+            return;
+        }
+
         var err = (NativeError)code;
         var msg = $"Native operation '{op}' failed: {err} ({code})";
         switch (err)
@@ -277,14 +328,27 @@ public sealed class LlamaNative : ILlamaNative
 
     private void EnsureNotDisposed()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(LlamaNative));
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(LlamaNative));
+        }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
-        try { _loader.Dispose(); } catch { }
+        try
+        {
+            _loader.Dispose();
+        }
+        catch
+        {
+        }
         _logger.LogInformation("NativeLibrary disposed");
     }
 }

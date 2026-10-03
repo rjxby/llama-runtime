@@ -81,6 +81,7 @@ RM := rm -rf
 # ------------------------------------------------------------
 NATIVE_DIR := native
 CMAKE_BUILD_DIR := $(NATIVE_DIR)/build
+BUILD_TESTING ?= OFF
 
 # ------------------------------------------------------------
 # Benchmarks
@@ -230,17 +231,18 @@ pin-llama:
 # Native build
 # ------------------------------------------------------------
 native-build:
-	$(MKDIR) $(CMAKE_BUILD_DIR)
-	cd $(CMAKE_BUILD_DIR) && cmake .. \
-		-DLLAMA_INCLUDE_ROOT="../vendor/llama/$(LLAMA_VERSION)/include" \
-		-DLLAMA_LIBRARY_ROOT="../vendor/llama/$(LLAMA_VERSION)/$(PLATFORM)/llama-$(LLAMA_VERSION)" \
+	cmake -S "$(NATIVE_DIR)" -B "$(CMAKE_BUILD_DIR)" \
+		-DLLAMA_INCLUDE_ROOT="$(CURDIR)/$(INCLUDE_PATH)" \
+		-DLLAMA_LIBRARY_ROOT="$(CURDIR)/$(VENDOR_PATH)/llama-$(LLAMA_VERSION)" \
 		-DLLAMA_SOURCE_VERSION="$(LLAMA_VERSION)" \
+		-DBUILD_TESTING="$(BUILD_TESTING)" \
+		-DMODEL_PATH="$(MODEL_PATH)" \
 		-DCMAKE_BUILD_TYPE=Release
-	cmake --build $(CMAKE_BUILD_DIR) --config Release
+	cmake --build "$(CMAKE_BUILD_DIR)" --config Release
 
 native-integration-tests:
-	cd $(CMAKE_BUILD_DIR) && cmake --build . --target integration_test
-	cd $(CMAKE_BUILD_DIR) && ./integration_test ../../$(MODEL_PATH)
+	$(MAKE) native-build BUILD_TESTING=ON
+	cd "$(CMAKE_BUILD_DIR)" && ctest -C Release --output-on-failure
 
 # ------------------------------------------------------------
 # REST server
@@ -267,9 +269,9 @@ llama-runtime-grpc-build:
 
 pack: native-build llama-runtime-grpc-build
 	@echo ">>> Copying native adapter and dependencies..."
-	cp -R native/build/lib* $(PACKAGE_DIR)/
+	cp -R "$(CMAKE_BUILD_DIR)"/lib* $(PACKAGE_DIR)/
 	@echo ">>> Copying licenses..."
-	cp native/build/LICENSE* $(PACKAGE_DIR)/
+	cp "$(CMAKE_BUILD_DIR)"/LICENSE* $(PACKAGE_DIR)/
 	@echo ">>> Package created in $(PACKAGE_DIR)"
 
 llama-runtime-grpc-run: pack

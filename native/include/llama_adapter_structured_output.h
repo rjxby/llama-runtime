@@ -10,4 +10,4 @@ bool create_structured_output_sampler(
     llama_adapter_response_format_t response_format,
     const char *grammar);
 
-} // namespace llama_adapter
+}

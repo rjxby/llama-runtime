@@ -38,6 +38,8 @@ int to_public_error(llama_adapter::Error error) noexcept {
     return LLAMA_ADAPTER_ERR_EMPTY_OUTPUT;
   case llama_adapter::Error::ABORTED:
     return LLAMA_ADAPTER_ERR_CANCELLED;
+  case llama_adapter::Error::PROMPT_BUDGET:
+    return LLAMA_ADAPTER_ERR_PROMPT_BUDGET;
   case llama_adapter::Error::UNKNOWN:
   default:
     return LLAMA_ADAPTER_ERR_UNKNOWN;
@@ -62,8 +64,9 @@ llama_adapter::GenParams default_generation_params(
 int apply_generation_params(
     llama_adapter::GenParams &generation_params,
     const llama_adapter_generation_params_t *params) {
-  if (!params)
+  if (!params) {
     return LLAMA_ADAPTER_OK;
+  }
 
   generation_params.max_new_tokens = params->max_new_tokens > 0
                                          ? params->max_new_tokens
@@ -82,24 +85,27 @@ int apply_generation_params(
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
   }
 
-  if (params->grammar)
+  if (params->grammar) {
     generation_params.grammar = params->grammar;
+  }
   if (generation_params.response_format == LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR &&
-      generation_params.grammar.empty())
+      generation_params.grammar.empty()) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   generation_params.abort_callback = params->abort_callback;
   generation_params.abort_callback_data = params->abort_callback_data;
 
   return LLAMA_ADAPTER_OK;
 }
 
-} // namespace
+}
 
 extern "C" {
 
 int llama_adapter_get_version(char *out, size_t out_size) noexcept {
-  if (!out || out_size == 0)
+  if (!out || out_size == 0) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
 
   try {
     const char *version = llama_adapter::source_version();
@@ -109,22 +115,25 @@ int llama_adapter_get_version(char *out, size_t out_size) noexcept {
     }
 
     const size_t version_len = std::strlen(version);
-    if (version_len + 1 > out_size)
+    if (version_len + 1 > out_size) {
       return LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL;
+    }
     std::memcpy(out, version, version_len);
     out[version_len] = '\0';
 
     return LLAMA_ADAPTER_OK;
   } catch (...) {
-    if (out && out_size)
+    if (out && out_size) {
       out[0] = '\0';
+    }
     return LLAMA_ADAPTER_ERR_UNKNOWN;
   }
 }
 
 int llama_load_model(const char *path, void **model_out) noexcept {
-  if (!path || !model_out)
+  if (!path || !model_out) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   try {
     llama_adapter::Model *model = new llama_adapter::Model();
     if (model->load(path) != llama_adapter::Error::OK) {
@@ -140,8 +149,9 @@ int llama_load_model(const char *path, void **model_out) noexcept {
 
 int llama_model_get_metadata(void *model,
                              llama_adapter_model_metadata_t *metadata_out) noexcept {
-  if (!model || !metadata_out)
+  if (!model || !metadata_out) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   try {
     llama_adapter::Model *native_model =
         static_cast<llama_adapter::Model *>(model);
@@ -153,8 +163,9 @@ int llama_model_get_metadata(void *model,
 }
 
 int llama_unload_model(void *model) noexcept {
-  if (!model)
+  if (!model) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   delete static_cast<llama_adapter::Model *>(model);
   return LLAMA_ADAPTER_OK;
 }
@@ -162,8 +173,9 @@ int llama_unload_model(void *model) noexcept {
 int llama_create_context(void *model, int n_ctx, int n_batch,
                          int generation_max_new_tokens,
                          void **ctx_out) noexcept {
-  if (!model || !ctx_out)
+  if (!model || !ctx_out) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   try {
     llama_adapter::Model *m = static_cast<llama_adapter::Model *>(model);
     llama_adapter::Context *ctx = new llama_adapter::Context(m);
@@ -181,8 +193,9 @@ int llama_create_context(void *model, int n_ctx, int n_batch,
 
 int llama_context_get_metadata(void *ctx,
                                llama_adapter_context_metadata_t *metadata_out) noexcept {
-  if (!ctx || !metadata_out)
+  if (!ctx || !metadata_out) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   try {
     llama_adapter::Context *native_context =
         static_cast<llama_adapter::Context *>(ctx);
@@ -194,15 +207,17 @@ int llama_context_get_metadata(void *ctx,
 }
 
 int llama_remove_context(void *ctx) noexcept {
-  if (!ctx)
+  if (!ctx) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   delete static_cast<llama_adapter::Context *>(ctx);
   return LLAMA_ADAPTER_OK;
 }
 
 int llama_context_reset(void *ctx) noexcept {
-  if (!ctx)
+  if (!ctx) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   llama_adapter::Context *native_context =
       static_cast<llama_adapter::Context *>(ctx);
   native_context->reset();
@@ -211,8 +226,9 @@ int llama_context_reset(void *ctx) noexcept {
 
 int llama_count_tokens(void *ctx, const char *prompt,
                        int32_t *token_count) noexcept {
-  if (!ctx || !prompt || !token_count)
+  if (!ctx || !prompt || !token_count) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
 
   llama_adapter::Context *native_context =
       static_cast<llama_adapter::Context *>(ctx);
@@ -224,16 +240,18 @@ int llama_infer(void *ctx, const char *prompt,
                 const llama_adapter_generation_params_t *params, char *out,
                 size_t out_size,
                 llama_adapter_infer_result_t *result) noexcept {
-  if (!ctx || !prompt)
+  if (!ctx || !prompt) {
     return LLAMA_ADAPTER_ERR_INVALID_ARG;
+  }
   try {
     llama_adapter::Context *native_context =
         static_cast<llama_adapter::Context *>(ctx);
     llama_adapter::GenParams generation_params =
         default_generation_params(native_context);
     const int params_rc = apply_generation_params(generation_params, params);
-    if (params_rc != LLAMA_ADAPTER_OK)
+    if (params_rc != LLAMA_ADAPTER_OK) {
       return params_rc;
+    }
 
     const auto rc =
         native_context->infer(prompt, out, out_size, result, generation_params);
