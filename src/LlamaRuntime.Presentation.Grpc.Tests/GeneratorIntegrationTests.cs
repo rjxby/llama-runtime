@@ -249,6 +249,49 @@ public class GeneratorIntegrationTests : IClassFixture<TestWebApplicationFactory
         channel.Dispose();
     }
 
+    [Theory]
+    [InlineData("\0world")]
+    [InlineData("wor\0ld")]
+    [InlineData("world\0")]
+    public async Task Generate_NullCharacterPrompt_ReturnsInvalidArgument(string prompt)
+    {
+        var client = CreateClient(out var channel);
+        using (channel)
+        {
+            var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+                await client.GenerateAsync(new GenerateRequest
+                {
+                    RequestId = "null-prompt",
+                    Prompt = prompt
+                }).ResponseAsync);
+
+            Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+            Assert.Equal("Prompt must not contain null characters.", ex.Status.Detail);
+            Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, ex.Trailers.Single(x => x.Key == RuntimeErrorMetadata.ErrorCodeTrailerName).Value);
+        }
+    }
+
+    [Theory]
+    [InlineData("\0hello")]
+    [InlineData("hel\0lo")]
+    [InlineData("hello\0")]
+    public async Task EstimateTokens_NullCharacterPrompt_ReturnsInvalidArgument(string prompt)
+    {
+        var client = CreateClient(out var channel);
+        using (channel)
+        {
+            var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+                await client.EstimateTokensAsync(new EstimateTokensRequest
+                {
+                    Prompt = prompt
+                }).ResponseAsync);
+
+            Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+            Assert.Equal("Prompt must not contain null characters.", ex.Status.Detail);
+            Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, ex.Trailers.Single(x => x.Key == RuntimeErrorMetadata.ErrorCodeTrailerName).Value);
+        }
+    }
+
     private Generator.GeneratorClient CreateClient(out GrpcChannel channel)
     {
         channel = CreateChannel(_factory);

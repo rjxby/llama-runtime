@@ -85,6 +85,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  char default_output[4096] = {0};
+  llama_adapter_infer_result_t default_result = {0};
+  rc = llama_infer(ctx, "Now tell me a short joke.", nullptr,
+                   default_output, sizeof(default_output), &default_result);
+  assert_ok(rc, "infer context defaults");
+  if (!has_valid_usage(default_output, &default_result) ||
+      strcmp(default_output, output) != 0 ||
+      default_result.prompt_tokens != result.prompt_tokens ||
+      default_result.output_tokens != result.output_tokens ||
+      default_result.total_tokens != result.total_tokens) {
+    fprintf(stderr, "FAIL: context defaults differ from explicit greedy settings\n");
+    return 1;
+  }
+
   llama_adapter_generation_params_t aborted_params = {
       16, 0.0f, 1.0f, 0xFFFFFFFFu, LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT,
       nullptr, always_abort, nullptr};

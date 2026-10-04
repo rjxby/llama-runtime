@@ -43,6 +43,7 @@ artifacts=(
 
 tracked_pin_files=(
   ".env.example"
+  ".env.ci"
   ".env.macos"
   ".github/workflows/ci.yml"
   ".github/workflows/release.yml"

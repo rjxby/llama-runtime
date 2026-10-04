@@ -9,6 +9,7 @@ This repository is a native-first, single-model gRPC inference runtime built on 
 - Build the native adapter: `make native-build`
 - Build/package the runtime: `make pack`
 - Run managed tests: `dotnet test src/llama-runtime.slnx --no-restore`
+- Run managed quality checks: `make check`
 - Run native integration tests only when a real model is available: `make native-integration-tests`
 
 ## Repo Boundaries
@@ -35,3 +36,4 @@ This repository is a native-first, single-model gRPC inference runtime built on 
 - Do not edit generated or downloaded contents under `vendor/`, `native/build/`, or `dist/` by hand.
 - When changing the pinned `llama.cpp` version or artifact layout, update checksum manifests and validate both managed and native paths.
 - Add or update xUnit tests for managed behavior changes.
+- Follow the [testing expectations](../AGENTS.md#testing-expectations) for regression evidence, focused checks, and final verification.

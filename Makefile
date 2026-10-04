@@ -88,7 +88,7 @@ BUILD_TESTING ?= OFF
 # ------------------------------------------------------------
 BENCH_ITERATIONS ?= 20
 BENCH_CONCURRENCY ?= 5
-BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems."
+BENCH_PROMPT ?= Write a short story about a llama learning distributed systems.
 BENCH_GRPCURL ?= http://localhost:5000
 BENCH_RESPONSEFORMAT ?= text
 BENCH_LOG_INVOCATIONS ?= true
@@ -109,7 +109,7 @@ PUBLISH_READY_TO_RUN ?= false
 # Phony targets
 # ------------------------------------------------------------
 .PHONY: \
-	all init verify pin-llama clean native-build \
+	all init verify pin-llama clean native-build check \
 	vendor/include vendor/binary \
 	native-integration-tests \
 	bench-llama-runtime-grpc bench-llama-rest \
@@ -245,6 +245,16 @@ native-integration-tests:
 	cd "$(CMAKE_BUILD_DIR)" && ctest -C Release --output-on-failure
 
 # ------------------------------------------------------------
+# Managed checks (restore once before running)
+# ------------------------------------------------------------
+# MSBuild treats the exported native PLATFORM as its solution Platform.
+check:
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore --disable-build-servers -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet test src/llama-runtime.slnx -c Release --no-build --no-restore -- RunConfiguration.TreatNoTestsAsError=true
+	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
+	git diff --check
+
+# ------------------------------------------------------------
 # REST server
 # ------------------------------------------------------------
 run-llama-rest-server:
@@ -282,12 +292,13 @@ llama-runtime-grpc-run: pack
 # ------------------------------------------------------------
 # Benchmarks
 # ------------------------------------------------------------
+bench-llama-runtime-grpc bench-llama-rest: export BENCH_PROMPT := $(BENCH_PROMPT)
+
 bench-llama-runtime-grpc:
 	BENCH_MODE=LLAMARUNTIMEGRPC \
 	BENCH_GRPCURL=$(BENCH_GRPCURL) \
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
-	BENCH_PROMPT=$(BENCH_PROMPT) \
 	BENCH_APIKEY=$(BENCH_APIKEY) \
 	BENCH_RESPONSEFORMAT=$(BENCH_RESPONSEFORMAT) \
 	BENCH_LOG_INVOCATIONS=$(BENCH_LOG_INVOCATIONS) \
@@ -299,7 +310,6 @@ bench-llama-rest:
 	BENCH_LLAMARESTURL=http://localhost:$(LLAMA_REST_PORT)/completion \
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
-	BENCH_PROMPT=$(BENCH_PROMPT) \
 	BENCH_RESPONSEFORMAT=$(BENCH_RESPONSEFORMAT) \
 	BENCH_LOG_INVOCATIONS=$(BENCH_LOG_INVOCATIONS) \
 	BENCH_INVOCATION_FILE=$(BENCH_INVOCATION_FILE) \
@@ -312,3 +322,13 @@ bench-llama-rest:
 # ------------------------------------------------------------
 clean:
 	$(RM) $(VENDOR_DIR) $(CMAKE_BUILD_DIR) $(PACKAGE_DIR)
+
+# Native artifact verification retains the existing `make verify` name.
+.PHONY: check-fast
+TEST_FILTER ?= Category=Unit
+TEST_PROJECT ?= src/llama-runtime.slnx
+check-fast:
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore --disable-build-servers -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet test "$(TEST_PROJECT)" -c Release --no-build --no-restore --filter "$(TEST_FILTER)" -- RunConfiguration.TreatNoTestsAsError=true
+	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
+	git diff --check

@@ -1,291 +1,69 @@
-# 🦙 llama-runtime — Lightweight Adapter for llama.cpp
+# Native adapter
 
-This project provides a **minimal, safe, and well-structured native integration layer** around [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp).
-It exposes:
+The native library exposes `llama.cpp` through the public [C header](include/llama_adapter.h). See [architecture](../docs/architecture.md#native-adapter) for the adapter components and [ownership and lifecycle](../docs/architecture.md#ownership-and-lifecycle) for handle lifetimes and concurrency rules.
 
-- a **clean C++ OO Adapter Core** for internal use
-- a **stable C API bridge** for consumption by .NET (or any foreign runtime)
-- predictable memory handling
-- compatibility-oriented usage of `llama_batch` and inference APIs
+## Build and test
 
-The goal is to offer a **tiny runtime layer** that feels like a real SDK, while staying intentionally small, readable, and robust.
-
----
-
-## ⭐ Key Design Goals
-
-✔ Minimal dependencies
-✔ Stable API surface
-✔ Explicit lifetime rules
-✔ Pinned compatibility expectations
-✔ Thread-safe *at the level llama.cpp allows*
-✔ Good error semantics instead of raw `nullptr` checking
-✔ Predictable lifetime rules
-
----
-
-## 🧩 Architecture
-
-```
-llama.cpp
-   │
-   ├── Adapter Core (C++ OO layer)
-   │      src/llama_adapter_core.cpp
-   │      include/llama_adapter_core.h
-   │
-   └── Public C API Bridge
-          src/llama_adapter.cpp
-          include/llama_adapter.h
-```
-
-### Adapter Core (Internal Layer)
-
-A small C++ utility wrapper that:
-- loads a model
-- creates a context
-- tokenizes
-- feeds tokens via `llama_decode`
-- performs generation with per-call sampling parameters
-- exposes a safe `infer(prompt → text)` workflow
-
-This keeps all llama.cpp interactions localized and readable.
-
-### C API Bridge (Public Interface)
-
-A pure C ABI-safe API intended for:
-- .NET P/Invoke
-- Rust FFI
-- Go / Swift bindings
-- Any foreign runtime
-
-The API translates into stable result codes and never throws across the ABI boundary.
-
----
-
-## 🧰 llama.cpp Compatibility
-
-This adapter intentionally uses the **most portable llama.cpp integration path**:
-
-- Uses only guaranteed fields of `llama_batch`
-  - `n_tokens`
-  - `token`
-- Uses `llama_get_logits()` (not version-fragile `..._ith(-1)`)
-- Avoids assumptions about internal `seq_id`, `pos`, `logits` pointer representation
-- Uses official llama.cpp vocab APIs
-- Returns an explicit buffer-too-small error when the caller output buffer is insufficient
-
-The repo is currently validated against the pinned vendor release `b10964`. Other revisions should be treated as unverified until tested. When intentionally changing that pin, use `make pin-llama LLAMA_VERSION=bNNNN` so the manifest, vendored artifacts, and tracked docs move together.
-
----
-
-## 🔨 Build
-
-The project expects prebuilt llama.cpp binaries (your build system handles downloading them).
-
-Build native library:
+From the repository root, download the pinned dependencies and build the adapter:
 
 ```bash
+make init
 make native-build
 ```
 
-Ordinary builds and packages use `BUILD_TESTING=OFF` and do not fetch test
-dependencies or require a model. The integration-test target enables testing,
-builds the executable, and runs CTest:
+The shared library is written to `native/build/libllama_adapter.dylib` on macOS or `native/build/libllama_adapter.so` on Linux. See [compatibility](../docs/architecture.md#compatibility) for the supported upstream pin and platform verification.
+
+Ordinary builds and packages use `BUILD_TESTING=OFF` and do not fetch test dependencies or require a model. To build and run both native test executables through CTest:
 
 ```bash
 make native-integration-tests MODEL_PATH=models/stories15M-q4_0.gguf
 ```
 
-`MODEL_PATH` must name an existing model file. Relative paths resolve from the
-repository root; absolute paths also work. For direct CMake builds, pass
-`-DBUILD_TESTING=ON -DMODEL_PATH=/absolute/path/to/model.gguf` to enable tests.
-The configured test receives that model path when run through CTest.
+`MODEL_PATH` must name an existing model file. Relative paths resolve from the repository root; absolute paths also work. For direct CMake builds, pass `-DBUILD_TESTING=ON -DMODEL_PATH=/absolute/path/to/model.gguf`. The configured tests receive that path through CTest.
 
-Resulting library:
+## C API
 
-```
-native/build/libllama_adapter.(a|so|dylib)
-```
+Include `llama_adapter.h` from a C or C++ caller and link the adapter shared library. The header is the authoritative source for signatures, structs, response formats, and error values.
 
----
+| Function | Purpose |
+| --- | --- |
+| `llama_adapter_get_version` | Writes the upstream version embedded at build time. |
+| `llama_load_model` / `llama_unload_model` | Load and release a model handle. |
+| `llama_model_get_metadata` | Read training-context size and tokenizer type. |
+| `llama_create_context` / `llama_remove_context` | Create and release a context handle. |
+| `llama_context_get_metadata` | Read the actual context size. |
+| `llama_context_reset` | Clear generation state. Inference also resets at entry. |
+| `llama_count_tokens` | Count prompt tokens without generating output. |
+| `llama_infer` | Generate text and report token/byte usage. |
 
-## 🧪 API Overview
-
-### Load Model
-
-```c
-int llama_load_model(const char * path, void ** model_out);
-```
-
-- Loads a model
-- Returns handle in `model_out`
-
-### Free Model
-
-```c
-int llama_unload_model(void * model);
-```
-
----
-
-### Create Context
-
-```c
-int llama_create_context(
-    void * model,
-    int n_ctx,
-    int n_batch,
-    int generation_max_new_tokens,
-    void ** ctx_out
-);
-```
-
-- Creates execution context from model
-
-### Destroy Context
-
-```c
-int llama_remove_context(void * ctx);
-```
-
----
-
-### Perform Inference
+The inference entry point is:
 
 ```c
 int llama_infer(
-    void * ctx,
-    const char * prompt,
-    const llama_adapter_generation_params_t * params,
-    char * out,
+    void *ctx,
+    const char *prompt,
+    const llama_adapter_generation_params_t *params,
+    char *out,
     size_t out_size,
-    llama_adapter_infer_result_t * result
+    llama_adapter_infer_result_t *result
 );
 ```
 
-- **Resets context state** (clears KV cache)
-- tokenizes prompt
-- decodes prompt
-- samples continuation through llama.cpp sampler APIs
-- applies `params->max_new_tokens`, `params->temperature`, and `params->top_p`
-  as per-call generation controls
-- applies grammar sampling when `params->response_format` is
-  `LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR` and `params->grammar` contains a
-  ready-made GBNF grammar
-- writes null-terminated result to `out`
-- fills token/byte usage in `result`
+Pass null-terminated prompt and grammar strings. Generation parameters select the output-token reservation, temperature, top-p, seed, response format, grammar, and optional cooperative abort callback. Use `LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT` for text or `LLAMA_ADAPTER_RESPONSE_FORMAT_GRAMMAR` with a prepared GBNF string for constrained output.
 
----
+The output buffer receives a null-terminated string. `result` reports prompt tokens, output tokens, total tokens, and output bytes excluding the terminator. The caller supplies the buffer and its byte capacity.
 
-## 📦 Memory Ownership Rules
+## Errors and troubleshooting
 
-| Object | Created By | Freed By |
-|--------|-----------|----------|
-| `llama_model*` | `llama_load_model` | `llama_unload_model` |
-| `llama_context*` | `llama_create_context` | `llama_remove_context` |
-| Output Buffer | caller allocated | caller frees |
+Check the integer result of every call against `LLAMA_ADAPTER_OK`. The [error enum](include/llama_adapter.h) lists every exported error value.
 
-The adapter does not hold cross-context shared mutable state.
+- `LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL` means the generated output and its terminator do not fit the supplied buffer.
+- `LLAMA_ADAPTER_ERR_PROMPT_BUDGET` preserves the prompt-token count in `result`; shorten the prompt or lower the reserved output tokens.
+- `LLAMA_ADAPTER_ERR_EMPTY_OUTPUT` means generation produced no continuation tokens.
+- `LLAMA_ADAPTER_ERR_CANCELLED` means the native operation aborted.
 
----
+For build errors involving upstream types or functions, check that headers and binaries match the [pinned revision](../docs/architecture.md#compatibility), then rebuild with `make native-build`. For early end-of-generation, check the model, prompt, and output-token reservation. Resetting the context cannot force a model to continue beyond its end-of-generation token.
 
-## 🧵 Threading
+## License
 
-- Multiple contexts **may exist in parallel**
-- Each context is isolated
-- Caller owns concurrency guarantees
-- Adapter itself holds no shared mutable state
-
----
-
-## 🚀 Performance Characteristics
-
-- Uses llama.cpp sampler APIs, with greedy decoding by default
-- Minimal memory copies
-- Dynamic allocations still occur for token/vector management; this adapter optimizes for clarity and correctness first
-- Respects llama.cpp batching rules
-
-This is intentionally a **simple reference runtime**, not a feature-complete server.
-
----
-
-## ❗ Error Handling
-
-All functions return stable integer error codes:
-
-```
-LLAMA_ADAPTER_OK
-LLAMA_ADAPTER_ERR_INVALID_ARG
-LLAMA_ADAPTER_ERR_LOAD_MODEL
-LLAMA_ADAPTER_ERR_NOT_FOUND
-LLAMA_ADAPTER_ERR_IO
-LLAMA_ADAPTER_ERR_BUFFER_TOO_SMALL
-LLAMA_ADAPTER_ERR_PROMPT_BUDGET // 12; result retains prompt-token count
-LLAMA_ADAPTER_ERR_OUT_OF_MEMORY
-LLAMA_ADAPTER_ERR_UNKNOWN
-```
-
----
-
-## 🧭 Source Version Support
-
-`llama_adapter_get_version(buffer)` returns the llama.cpp source/release
-version embedded into the adapter at build time from `LLAMA_VERSION`:
-
-```c
-llama_adapter_get_version(buffer)
-```
-
-This no longer depends on an external metadata file at runtime.
-
----
-
-## 🩹 Troubleshooting
-
-### Build fails with `llama_batch` errors
-
-This project intentionally avoids fragile batch fields.
-If you see compile errors, ensure:
-
-- You’re using the included version headers
-- No modifications were made to batch handling
-
----
-
-### Getting Empty Output
-
-Check:
-- prompt is non-empty
-- model supports text generation
-- output buffer > 1 byte
-
----
-
-### EOS finishes too early
-
-Greedy decoding stops at EOS.
-Increase max token count if desired (internal limit is currently modest by design).
-
----
-
-## 🎯 Intended Use Cases
-
-- .NET runtime integration
-- lightweight native embedding
-- teaching / demonstration of llama.cpp internals
-- experimental runtimes
-- places where full llama.cpp server would be overkill
-
----
-
-## 📜 License
-
-This adapter respects llama.cpp license.
-Project license MIT.
-
----
-
-## 🙌 Credits
-
-- llama.cpp authors
-- GGML / GGUF ecosystem
+The adapter and `llama.cpp` use the MIT license. Native builds copy both license files alongside the library.

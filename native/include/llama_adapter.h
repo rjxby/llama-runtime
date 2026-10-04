@@ -8,7 +8,10 @@
 #endif
 
 #ifdef __cplusplus
+#define LLAMA_ADAPTER_NOEXCEPT noexcept
 extern "C" {
+#else
+#define LLAMA_ADAPTER_NOEXCEPT
 #endif
 
 #if defined(_WIN32)
@@ -73,26 +76,28 @@ typedef struct {
 } llama_adapter_context_metadata_t;
 
 LLAMA_ADAPTER_API int llama_adapter_get_version(char *out,
-                                                size_t out_size) noexcept;
+                                                size_t out_size) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_load_model(const char *path,
-                                       void **model_out) noexcept;
+                                       void **model_out) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_model_get_metadata(
-    void *model, llama_adapter_model_metadata_t *metadata_out) noexcept;
-LLAMA_ADAPTER_API int llama_unload_model(void *model) noexcept;
+    void *model, llama_adapter_model_metadata_t *metadata_out) LLAMA_ADAPTER_NOEXCEPT;
+LLAMA_ADAPTER_API int llama_unload_model(void *model) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_create_context(void *model, int n_ctx, int n_batch,
                                            int generation_max_new_tokens,
-                                           void **ctx_out) noexcept;
+                                           void **ctx_out) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_context_get_metadata(
-    void *ctx, llama_adapter_context_metadata_t *metadata_out) noexcept;
-LLAMA_ADAPTER_API int llama_remove_context(void *ctx) noexcept;
-LLAMA_ADAPTER_API int llama_context_reset(void *ctx) noexcept;
+    void *ctx, llama_adapter_context_metadata_t *metadata_out) LLAMA_ADAPTER_NOEXCEPT;
+LLAMA_ADAPTER_API int llama_remove_context(void *ctx) LLAMA_ADAPTER_NOEXCEPT;
+LLAMA_ADAPTER_API int llama_context_reset(void *ctx) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_count_tokens(void *ctx, const char *prompt,
-                                         int32_t *token_count) noexcept;
+                                         int32_t *token_count) LLAMA_ADAPTER_NOEXCEPT;
 LLAMA_ADAPTER_API int llama_infer(
     void *ctx, const char *prompt,
     const llama_adapter_generation_params_t *params,
     char *out, size_t out_size,
-    llama_adapter_infer_result_t *result) noexcept;
+    llama_adapter_infer_result_t *result) LLAMA_ADAPTER_NOEXCEPT;
+
+#undef LLAMA_ADAPTER_NOEXCEPT
 
 #ifdef __cplusplus
 }

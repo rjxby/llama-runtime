@@ -1,7 +1,9 @@
+using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Engine.Contracts;
 
 namespace LlamaRuntime.Engine.Tests;
 
+[Trait(TestCategories.Name, TestCategories.Unit)]
 public sealed class JsonStructuredOutputTests
 {
     [Theory]
