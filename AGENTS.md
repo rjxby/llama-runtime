@@ -116,3 +116,27 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 - Explain each new dependency or project reference.
 - For changes affecting packaging, startup, or native interop, also run the relevant `make` targets.
 - Native integration tests require vendored artifacts from `make init` and a valid GGUF referenced by `MODEL_PATH`. Missing prerequisites mean native behavior is unverified, not passed.
+
+## gRPC smoke verification
+
+For changes affecting packaging, startup, native loading, or inference through gRPC, use the existing runtime and benchmark commands to verify the packaged runtime with a real model:
+
+1. Use an existing local GGUF with an absolute `HostedModel__ModelPath`, a configured `HostedModel__ModelId`, and matching `ApiKeys__Keys__0` and `BENCH_APIKEY`. Run `make init` if vendor artifacts are missing. See [quickstart](README.md#quickstart) for configuration.
+2. Start `make llama-runtime-grpc-run` in a separate terminal or tool session and retain its logs. Wait for the model to reach `Loaded` within a bounded startup deadline. If polling `/health/ready`, use an HTTP/2-capable client and require the body `Healthy`; HTTP 200 alone can also mean the model is still loading or warming up.
+3. Send real gRPC requests through the benchmark client:
+
+   ```bash
+   make bench-llama-runtime-grpc BENCH_ITERATIONS=1 BENCH_CONCURRENCY=1
+   ```
+
+   Set `BENCH_GRPCURL` to the runtime's address if it differs from `http://localhost:5000`. Keep strict response validation enabled. The harness also sends five warm-up requests before the measured request.
+4. Require no warm-up failures, measured `Success=1`, `Errors=0`, and no diagnostic errors. Inspect console output and the CSV/JSONL results; the benchmark can exit successfully despite failed requests. Default text validation checks for nonblank generated content. For structured-output changes, repeat with `BENCH_RESPONSEFORMAT=json` and a prompt matching the [benchmark schema](docs/benchmarking.md#run-json-benchmarks).
+5. Bound startup and request verification with tool-session deadlines. Stop only the runtime process started for this check, including after failure. Report the commands, request results, and any blocked prerequisites. Missing model or vendor artifacts means this check is unverified. This smoke check supplements `make check` and applicable native integration tests; it does not establish inference quality or performance.
+
+## Quality gates
+
+- Use `make check-fast` for managed unit feedback after restoring dependencies. Use `TEST_FILTER='FullyQualifiedName~TestClass'` for a narrower run. Finish with `make check`.
+- ArchitectureBoundaryTests enforces the project-reference rules in docs/architecture.md. Update the rule deliberately when a boundary changes.
+- For new bug fixes, preserve the failing-before and passing-after evidence. Explain changed fixtures, skipped tests, analyzer suppressions, and any reduced assertion coverage.
+- Report test counts and exact commands. An empty test selection is a failed check.
+- Keep inference quality and performance measurements separate from deterministic managed checks. Pin model hashes, runtime settings, and upstream revision when comparing runs.

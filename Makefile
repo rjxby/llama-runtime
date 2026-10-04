@@ -322,3 +322,12 @@ bench-llama-rest:
 # ------------------------------------------------------------
 clean:
 	$(RM) $(VENDOR_DIR) $(CMAKE_BUILD_DIR) $(PACKAGE_DIR)
+
+# Native artifact verification retains the existing `make verify` name.
+.PHONY: check-fast
+TEST_FILTER ?= Category=Unit
+check-fast:
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet test src/llama-runtime.slnx -c Release --no-build --no-restore --filter "$(TEST_FILTER)" -- RunConfiguration.TreatNoTestsAsError=true
+	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
+	git diff --check
