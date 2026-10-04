@@ -145,7 +145,7 @@ See [agent testing expectations](AGENTS.md#testing-expectations) for verificatio
 
 - [Architecture](docs/architecture.md) covers ownership, concurrency, lifecycle, and runtime contracts.
 - [Native adapter](native/README.md) covers the C API and native build and test commands.
-- [Roadmap](docs/runtime-roadmap.md) tracks planned work.
+- [Backlog](docs/backlog.md) tracks open and deferred work.
 
 Open an issue before starting a major change. Follow the existing code style and add tests where applicable. For runtime failures, include .NET logs and native adapter stderr. For queue rejection or timeouts, check queue capacity, worker count, and admission timeout.
 
