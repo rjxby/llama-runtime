@@ -132,7 +132,7 @@ flowchart LR
     R --> P
 ```
 
-See [implementation checks and measurements](isolation-simplification.md) for the verified macOS behavior. Linux build code remains in place; Linux execution is deferred.
+Linux build code remains in place; Linux execution is deferred.
 
 ## Runtime contract
 
@@ -179,7 +179,7 @@ Keep `PublishReadyToRun` disabled by default. Enabling it caused a reproducible 
 
 Model loading, inference, token estimation, structured output, and capability/usage reporting belong to the runtime. Conversation state, model routing, context reduction, prompt templating policy, tool execution, and agent loops belong to its callers. Requests target the model selected at startup; there is no request-level model selector or multi-model hosting.
 
-Speculative decoding is not implemented. Capability replies and runtime traces report it as unavailable. The [roadmap](runtime-roadmap.md) describes planned changes.
+Speculative decoding is not implemented. Capability replies and runtime traces report it as unavailable. The [backlog](backlog.md) tracks planned changes.
 
 ## Compatibility
 
