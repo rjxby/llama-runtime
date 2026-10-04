@@ -31,8 +31,12 @@ public class ArchitectureBoundaryTests
             var dependency = Path.GetFileNameWithoutExtension(reference.Attribute("Include")!.Value.Replace((char)92, '/'));
             Assert.Contains(dependency, allowed);
         }
-        if (name.EndsWith(".Contracts", StringComparison.Ordinal))
+        if (name != "LlamaRuntime.Presentation.Grpc")
         {
+            foreach (var framework in project.Descendants("FrameworkReference"))
+            {
+                Assert.NotEqual("Microsoft.AspNetCore.App", framework.Attribute("Include")!.Value);
+            }
             foreach (var package in project.Descendants("PackageReference"))
             {
                 var dependency = package.Attribute("Include")!.Value;

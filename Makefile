@@ -249,7 +249,7 @@ native-integration-tests:
 # ------------------------------------------------------------
 # MSBuild treats the exported native PLATFORM as its solution Platform.
 check:
-	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore --disable-build-servers -warnaserror -p:EnforceCodeStyleInBuild=true
 	env -u PLATFORM dotnet test src/llama-runtime.slnx -c Release --no-build --no-restore -- RunConfiguration.TreatNoTestsAsError=true
 	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
 	git diff --check
@@ -326,8 +326,9 @@ clean:
 # Native artifact verification retains the existing `make verify` name.
 .PHONY: check-fast
 TEST_FILTER ?= Category=Unit
+TEST_PROJECT ?= src/llama-runtime.slnx
 check-fast:
-	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore -warnaserror -p:EnforceCodeStyleInBuild=true
-	env -u PLATFORM dotnet test src/llama-runtime.slnx -c Release --no-build --no-restore --filter "$(TEST_FILTER)" -- RunConfiguration.TreatNoTestsAsError=true
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore --disable-build-servers -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet test "$(TEST_PROJECT)" -c Release --no-build --no-restore --filter "$(TEST_FILTER)" -- RunConfiguration.TreatNoTestsAsError=true
 	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
 	git diff --check

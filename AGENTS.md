@@ -106,6 +106,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 
 ## Testing Expectations
 
+- Run the documented verification commands directly. Do not recreate existing checks with ad hoc Python or shell scripts. If a required check is missing, explain the gap before adding tooling.
 - Run focused checks while iterating, then run the required checks once at the end. Repeat them only after further changes or when investigating a failure.
 - Restore managed dependencies once with `dotnet restore src/llama-runtime.slnx`. Run the relevant test project or class while iterating, then run `make check` before finishing code changes. See [managed checks](README.md#managed-checks) for the checks and filter examples.
 - For bug fixes, demonstrate a regression test failing before the fix and passing afterward. If the failure cannot be reproduced, report that limitation.
@@ -135,7 +136,7 @@ For changes affecting packaging, startup, native loading, or inference through g
 
 ## Quality gates
 
-- Use `make check-fast` for managed unit feedback after restoring dependencies. Use `TEST_FILTER='FullyQualifiedName~TestClass'` for a narrower run. Finish with `make check`.
+- Use `make check-fast` for managed unit feedback after restoring dependencies. Use `TEST_PROJECT=path/to/test.csproj TEST_FILTER='FullyQualifiedName~TestClass'` for a narrower run. A solution-wide filter must select tests in each test project. Finish with `make check`.
 - ArchitectureBoundaryTests enforces the project-reference rules in docs/architecture.md. Update the rule deliberately when a boundary changes.
 - For new bug fixes, preserve the failing-before and passing-after evidence. Explain changed fixtures, skipped tests, analyzer suppressions, and any reduced assertion coverage.
 - Report test counts and exact commands. An empty test selection is a failed check.

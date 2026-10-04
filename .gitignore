@@ -41,6 +41,7 @@ appsettings.Development.json
 
 .env*
 !.env.example
+!.env.ci
 
 vendor/
 build/

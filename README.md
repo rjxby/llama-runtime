@@ -155,6 +155,6 @@ Open an issue before starting a major change. Follow the existing code style and
 
 ### Fast managed feedback
 
-After `dotnet restore src/llama-runtime.slnx`, use `make check-fast` for managed unit tests, compiler checks, the brace rule, and whitespace checks. Narrow the tests with `make check-fast TEST_FILTER='FullyQualifiedName~LlamaSessionTests'`. Finish code changes with `make check`, which includes managed integration tests. Both commands fail on an empty test selection.
+After `dotnet restore src/llama-runtime.slnx`, use `make check-fast` for managed unit tests, compiler checks, the brace rule, and whitespace checks. Narrow the tests with `make check-fast TEST_PROJECT=src/LlamaRuntime.Engine.Tests/LlamaRuntime.Engine.Tests.csproj TEST_FILTER='FullyQualifiedName~LlamaSessionTests'`. Finish code changes with `make check`, which includes managed integration tests. Both commands fail on an empty test selection.
 
 Project-reference architecture tests keep native interop, engine logic, and the gRPC host in their declared layers. Native integration and benchmarks still require their own model and vendor prerequisites. Model-dependent quality measurements should record the model SHA-256, llama.cpp pin, generation settings, and context size.

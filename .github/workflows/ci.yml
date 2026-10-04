@@ -24,7 +24,7 @@ jobs:
       run: dotnet restore src/llama-runtime.slnx
 
     - name: Run managed quality checks
-      run: make check
+      run: make check TARGET=ci
 
   native-build:
     runs-on: macos-latest
@@ -39,12 +39,7 @@ jobs:
         key: ${{ runner.os }}-llama-${{ hashFiles('Makefile', '.env.*') }}
 
     - name: Initialize dependencies
-      run: |
-        # Generate a temporary .env for the runner's execution
-        echo "PLATFORM=macos-arm64" > .env
-        echo "LLAMA_VERSION=b10964" >> .env
-        echo "DOTNET_RUNTIME=osx-arm64" >> .env
-        make init
+      run: make init TARGET=ci
 
     - name: Build Native Adapter
-      run: make native-build
+      run: make native-build TARGET=ci
