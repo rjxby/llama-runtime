@@ -1,51 +1,8 @@
-# Llama Runtime Roadmap
+# Llama Runtime roadmap
 
-## Role of Llama Runtime
+This document tracks planned work. Speculative decoding is not implemented; the current runtime reports it as unavailable.
 
-Llama Runtime is the thin inference worker. It owns:
-
-- model loading
-- inference execution
-- token estimation
-- structured output enforcement
-- speculative decoding
-- runtime capability reporting
-- usage metrics and runtime trace metadata
-
-Llama Runtime does not own:
-
-- conversation structure
-- routing and model selection policy
-- context reduction policy
-- prompt management policy
-- tool execution
-- agent loop state
-
-The runtime should stay focused on inference-time behavior and expose a small, explicit contract that a proxy or orchestrator can depend on.
-
-## Non-goals / ownership boundaries
-
-This roadmap does not turn the runtime into a general orchestration layer. In particular:
-
-- the runtime should not accept message-array conversation state as its primary input surface
-- the runtime should not decide which model to use for a request
-- the runtime should not execute tools or maintain multi-step tool loop state
-- the runtime should not own prompt templating policy beyond minimal runtime hints exposed for integration
-
-These boundaries keep the runtime reusable as a predictable worker behind a higher-level proxy.
-
-## Current architecture constraints
-
-The current implementation is intentionally single-model per process.
-
-- The hosted model is selected at startup from configuration, not at request time.
-- Startup loads one model, warms it, and keeps it resident until shutdown.
-- Request routing always targets the already-loaded model instance.
-- The runtime does not currently host multiple loaded models behind one serving endpoint.
-
-Because of that, the runtime should not introduce a request-level model selector. Doing so would imply a multi-model architecture that does not exist today and would blur the boundary between runtime execution and upstream routing.
-
-If future requirements demand multi-model hosting in one runtime process, that should be handled as a separate architecture change with explicit loading, eviction, isolation, and capability-discovery rules.
+See [architecture](architecture.md#scope) for current responsibilities, caller-owned policies, and the single-model boundary. Multi-model hosting would require a separate architecture decision covering loading, eviction, isolation, and capability discovery.
 
 ## Step 1: Speculative decoding
 
@@ -126,5 +83,5 @@ Runtime can:
 
 - Multi-model hosting is deferred. If required later, it should be specified as a separate roadmap item that covers loading policy, eviction policy, memory accounting, request routing, and per-model capability lookup.
 - Tool-call normalization is deferred to the proxy. If a later design moves normalized tool-call parsing into runtime, that should be introduced as a separate contract change.
-- The exact trailer error-code taxonomy should be defined during implementation, but it should be stable and integration-friendly once introduced.
+- The current error trailers and codes are defined in [RuntimeErrorMetadata](../src/LlamaRuntime.Presentation.Grpc/Services/RuntimeErrorMetadata.cs). Future hardening must preserve that contract or make a deliberate compatibility change.
 - The exact benchmark matrix can remain implementation-defined so long as it covers baseline text generation and speculative decoding where supported.

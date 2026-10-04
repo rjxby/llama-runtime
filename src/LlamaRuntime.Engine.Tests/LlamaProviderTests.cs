@@ -98,7 +98,7 @@ public sealed class LlamaProviderTests
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             provider.LoadModelAsync("model.gguf", cts.Token));
 
-        native.Verify(n => n.UnloadModel(modelHandle), Times.Once);
+        Assert.True(modelHandle.IsClosed);
     }
 
     [Fact]
@@ -126,8 +126,8 @@ public sealed class LlamaProviderTests
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             provider.LoadModelAsync("model.gguf", cts.Token));
 
-        native.Verify(n => n.RemoveContext(contextHandle), Times.Once);
-        native.Verify(n => n.UnloadModel(modelHandle), Times.Once);
+        Assert.True(contextHandle.IsClosed);
+        Assert.True(modelHandle.IsClosed);
     }
 
     [Fact]
@@ -151,8 +151,8 @@ public sealed class LlamaProviderTests
             provider.LoadModelAsync("model.gguf"));
 
         Assert.Contains("Failed to determine actual runtime context size", ex.Message);
-        native.Verify(n => n.RemoveContext(contextHandle), Times.Once);
-        native.Verify(n => n.UnloadModel(modelHandle), Times.Once);
+        Assert.True(contextHandle.IsClosed);
+        Assert.True(modelHandle.IsClosed);
     }
 
     [Theory]
@@ -187,13 +187,15 @@ public sealed class LlamaProviderTests
     [Fact]
     public async Task LoadModelAsync_ContextMismatch_ThrowsModelLoadException()
     {
+        var modelHandle = CreateModelHandle();
+        var contextHandle = TestModelFactory.CreateContextHandle(2);
         var native = new Mock<ILlamaNative>();
         native.Setup(n => n.LoadModel(It.IsAny<string>()))
-              .Returns(CreateModelHandle());
+              .Returns(modelHandle);
         native.Setup(n => n.GetModelMetadata(It.IsAny<LlamaModelHandle>()))
               .Returns(CreateMetadata(trainingContextSize: 16));
         native.Setup(n => n.CreateContext(It.IsAny<LlamaModelHandle>()))
-              .Returns(LlamaContextHandle.FromIntPtr(new IntPtr(2)));
+              .Returns(contextHandle);
         native.Setup(n => n.GetContextMetadata(It.IsAny<LlamaContextHandle>()))
               .Returns(CreateContextMetadata(contextSize: 16));
 
@@ -203,6 +205,8 @@ public sealed class LlamaProviderTests
             provider.LoadModelAsync("model.gguf"));
 
         Assert.Contains("Configured context size 32 does not match actual created context size 16", ex.Message);
+        Assert.True(contextHandle.IsClosed);
+        Assert.True(modelHandle.IsClosed);
     }
 
     [Fact]

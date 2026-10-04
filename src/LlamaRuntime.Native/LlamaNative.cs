@@ -13,7 +13,6 @@ public sealed class LlamaNative : ILlamaNative
     private static readonly NativeMethods.AbortCallback AbortCallback = IsCancellationRequested;
 
     private readonly ILogger<LlamaNative> _logger;
-    private readonly NativeLoader _loader;
     private readonly LlamaNativeOptions _options;
     private bool _disposed;
 
@@ -27,8 +26,8 @@ public sealed class LlamaNative : ILlamaNative
             throw new ArgumentException($"Library path must be provided", nameof(_options.NativeLibraryPath));
         }
 
-        _loader = new NativeLoader(_options.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
-        NativeRuntimeBindings.Initialize(_loader.Handle);
+        var loader = new NativeLoader(_options.NativeLibraryPath, NativeMethods.LibraryLogicalName, _logger);
+        NativeRuntimeBindings.Initialize(loader.Handle);
 
         _logger.LogInformation("NativeLibrary initialized");
     }
@@ -342,13 +341,6 @@ public sealed class LlamaNative : ILlamaNative
         }
 
         _disposed = true;
-        try
-        {
-            _loader.Dispose();
-        }
-        catch
-        {
-        }
-        _logger.LogInformation("NativeLibrary disposed");
+        _logger.LogInformation("Native wrapper disposed; library remains loaded for process lifetime");
     }
 }

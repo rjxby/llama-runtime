@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using LlamaRuntime.Common.Tests;
 using LlamaRuntime.Native;
@@ -11,12 +12,15 @@ namespace LlamaRuntime.Engine.Tests;
 public sealed class LlamaNativeTests
 {
     [Fact]
-    public void GetVersion_WhenDisposed_ThrowsObjectDisposedExceptionForLlamaNative()
+    public void Dispose_IsIdempotentAndGetVersionRejectsDisposedWrapper()
     {
         var native = (LlamaNative)RuntimeHelpers.GetUninitializedObject(typeof(LlamaNative));
         typeof(LlamaNative)
-            .GetField("_disposed", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(native, true);
+            .GetField("_logger", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(native, NullLogger<LlamaNative>.Instance);
+
+        native.Dispose();
+        native.Dispose();
 
         var ex = Assert.IsType<ObjectDisposedException>(Record.Exception(() => native.GetVersion()));
 

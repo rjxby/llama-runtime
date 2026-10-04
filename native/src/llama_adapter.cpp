@@ -51,13 +51,6 @@ llama_adapter::GenParams default_generation_params(
   llama_adapter::GenParams generation_params;
   generation_params.max_new_tokens =
       native_context->generation_max_new_tokens();
-  generation_params.temperature = 0.0f;
-  generation_params.top_p = 1.0f;
-  generation_params.seed = LLAMA_DEFAULT_SEED;
-  generation_params.response_format = LLAMA_ADAPTER_RESPONSE_FORMAT_TEXT;
-  generation_params.grammar.clear();
-  generation_params.abort_callback = nullptr;
-  generation_params.abort_callback_data = nullptr;
   return generation_params;
 }
 

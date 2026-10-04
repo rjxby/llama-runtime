@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LlamaRuntime.Native;
 
-internal sealed class NativeLoader : IDisposable
+internal sealed class NativeLoader
 {
     private static readonly Lock SyncRoot = new();
     private static IntPtr _sharedHandle;
@@ -13,7 +13,6 @@ internal sealed class NativeLoader : IDisposable
     private readonly string _libraryPath;
     private readonly string _logicalName;
     private readonly ILogger _logger;
-    private bool _disposed;
 
     public NativeLoader(string libraryPath, string logicalName, ILogger logger)
     {
@@ -29,18 +28,7 @@ internal sealed class NativeLoader : IDisposable
         EnsureLoaded();
     }
 
-    public IntPtr Handle
-    {
-        get
-        {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(NativeLoader));
-            }
-
-            return _sharedHandle;
-        }
-    }
+    public IntPtr Handle => _sharedHandle;
 
     private void EnsureLoaded()
     {
@@ -84,14 +72,4 @@ internal sealed class NativeLoader : IDisposable
         _logger.LogDebug("DllImport resolver registered once for {Name}", _logicalName);
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _logger.LogDebug(nameof(NativeLoader) + " disposed for {Name}; native library remains loaded for process lifetime", _logicalName);
-    }
 }

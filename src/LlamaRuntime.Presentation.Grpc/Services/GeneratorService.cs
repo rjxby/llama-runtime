@@ -87,6 +87,11 @@ public sealed class GeneratorService : Generator.GeneratorBase
                 throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(EstimateTokensRequest.Prompt)} is required.", StatusCode.InvalidArgument);
             }
 
+            if (request.Prompt.Contains('\0'))
+            {
+                throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(EstimateTokensRequest.Prompt)} must not contain null characters.", StatusCode.InvalidArgument);
+            }
+
             var runtime = EnsureRuntimeLoaded();
 
             var tokenCount = await _inferenceCoordinator.CountTokensAsync(request.Prompt, context.CancellationToken).ConfigureAwait(false);
@@ -155,6 +160,11 @@ public sealed class GeneratorService : Generator.GeneratorBase
         if (string.IsNullOrWhiteSpace(request.Prompt))
         {
             throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(GenerateRequest.Prompt)} is required.", StatusCode.InvalidArgument);
+        }
+
+        if (request.Prompt.Contains('\0'))
+        {
+            throw CreateRpcException(RuntimeErrorMetadata.InvalidArgumentCode, $"{nameof(GenerateRequest.Prompt)} must not contain null characters.", StatusCode.InvalidArgument);
         }
 
         var responseFormat = request.ResponseFormat?.Type?.Trim();

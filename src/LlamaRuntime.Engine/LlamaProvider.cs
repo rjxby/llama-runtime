@@ -69,7 +69,8 @@ public sealed class LlamaProvider : ILlamaProvider
         }
         catch (Exception ex)
         {
-            CleanupFailedLoad(path, probeContextHandle, modelHandle);
+            probeContextHandle?.Dispose();
+            modelHandle?.Dispose();
 
             if (ex is OperationCanceledException)
             {
@@ -209,10 +210,7 @@ public sealed class LlamaProvider : ILlamaProvider
         }
         catch (Exception ex)
         {
-            if (contextHandle != null)
-            {
-                RemoveProbeContext(path, contextHandle);
-            }
+            contextHandle?.Dispose();
 
             if (ex is ModelLoadException or OperationCanceledException)
             {
@@ -220,41 +218,6 @@ public sealed class LlamaProvider : ILlamaProvider
             }
 
             throw new ModelLoadException($"Failed to determine actual runtime context size for {path}.", ex);
-        }
-    }
-
-    private void CleanupFailedLoad(
-        string path,
-        LlamaContextHandle? probeContextHandle,
-        LlamaModelHandle? modelHandle)
-    {
-        if (probeContextHandle != null)
-        {
-            RemoveProbeContext(path, probeContextHandle);
-        }
-
-        if (modelHandle != null)
-        {
-            try
-            {
-                _native.UnloadModel(modelHandle);
-            }
-            catch (Exception unloadEx)
-            {
-                _logger.LogWarning(unloadEx, "Failed unloading model after load failure from {Path}", path);
-            }
-        }
-    }
-
-    private void RemoveProbeContext(string path, LlamaContextHandle contextHandle)
-    {
-        try
-        {
-            _native.RemoveContext(contextHandle);
-        }
-        catch (Exception removeEx)
-        {
-            _logger.LogWarning(removeEx, "Failed releasing probe context while loading {Path}", path);
         }
     }
 

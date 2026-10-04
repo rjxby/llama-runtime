@@ -32,37 +32,25 @@ public static class GrpcBenchmark
 
         var client = new Generator.GeneratorClient(channel);
 
-        await BenchmarkWarmupRunner.RunAsync(
-            async requestId =>
-            {
-                var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
+        async Task<BenchmarkInvocationResult> SendRequestAsync(string requestId)
+        {
+            var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
 
-                return BenchmarkResponseValidator.ValidateGeneratedText(
-                    reply.Content,
-                    options.StrictResponseValidation,
-                    "gRPC",
-                    options.ResponseFormatKind,
-                    requestId,
-                    options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
-            },
-            logger).ConfigureAwait(false);
+            return BenchmarkResponseValidator.ValidateGeneratedText(
+                reply.Content,
+                options.StrictResponseValidation,
+                "gRPC",
+                options.ResponseFormatKind,
+                requestId,
+                options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
+        }
+
+        await BenchmarkWarmupRunner.RunAsync(SendRequestAsync, logger).ConfigureAwait(false);
 
         return await BenchmarkRunner.RunAsync(
             options.Iterations,
             options.Concurrency,
-            async idx =>
-            {
-                var requestId = $"run-{idx}";
-                var reply = await client.GenerateAsync(CreateRequest(requestId, options)).ConfigureAwait(false);
-
-                return BenchmarkResponseValidator.ValidateGeneratedText(
-                    reply.Content,
-                    options.StrictResponseValidation,
-                    "gRPC",
-                    options.ResponseFormatKind,
-                    requestId,
-                    options.ResponseFormatKind == BenchmarkResponseFormat.Json ? BenchmarkJsonSchema.SchemaJson : null);
-            },
+            idx => SendRequestAsync($"run-{idx}"),
             new BenchmarkRunMetadata(
                 options.Mode,
                 options.Prompt,

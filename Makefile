@@ -88,7 +88,7 @@ BUILD_TESTING ?= OFF
 # ------------------------------------------------------------
 BENCH_ITERATIONS ?= 20
 BENCH_CONCURRENCY ?= 5
-BENCH_PROMPT ?= "Write a short story about a llama learning distributed systems."
+BENCH_PROMPT ?= Write a short story about a llama learning distributed systems.
 BENCH_GRPCURL ?= http://localhost:5000
 BENCH_RESPONSEFORMAT ?= text
 BENCH_LOG_INVOCATIONS ?= true
@@ -282,12 +282,13 @@ llama-runtime-grpc-run: pack
 # ------------------------------------------------------------
 # Benchmarks
 # ------------------------------------------------------------
+bench-llama-runtime-grpc bench-llama-rest: export BENCH_PROMPT := $(BENCH_PROMPT)
+
 bench-llama-runtime-grpc:
 	BENCH_MODE=LLAMARUNTIMEGRPC \
 	BENCH_GRPCURL=$(BENCH_GRPCURL) \
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
-	BENCH_PROMPT=$(BENCH_PROMPT) \
 	BENCH_APIKEY=$(BENCH_APIKEY) \
 	BENCH_RESPONSEFORMAT=$(BENCH_RESPONSEFORMAT) \
 	BENCH_LOG_INVOCATIONS=$(BENCH_LOG_INVOCATIONS) \
@@ -299,7 +300,6 @@ bench-llama-rest:
 	BENCH_LLAMARESTURL=http://localhost:$(LLAMA_REST_PORT)/completion \
 	BENCH_ITERATIONS=$(BENCH_ITERATIONS) \
 	BENCH_CONCURRENCY=$(BENCH_CONCURRENCY) \
-	BENCH_PROMPT=$(BENCH_PROMPT) \
 	BENCH_RESPONSEFORMAT=$(BENCH_RESPONSEFORMAT) \
 	BENCH_LOG_INVOCATIONS=$(BENCH_LOG_INVOCATIONS) \
 	BENCH_INVOCATION_FILE=$(BENCH_INVOCATION_FILE) \

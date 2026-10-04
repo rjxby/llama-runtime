@@ -17,6 +17,48 @@ public sealed class GeneratorServiceTests
         {"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}
         """;
 
+    [Theory]
+    [InlineData("\0world")]
+    [InlineData("wor\0ld")]
+    [InlineData("world\0")]
+    public async Task Generate_NullCharacterPrompt_IsRejectedBeforeAdmission(string prompt)
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.Generate(
+                new GenerateRequest { RequestId = "null-prompt", Prompt = prompt },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal("Prompt must not contain null characters.", ex.Status.Detail);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal(ex.Status.Detail, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorMessageTrailerName));
+        coordinator.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("\0hello")]
+    [InlineData("hel\0lo")]
+    [InlineData("hello\0")]
+    public async Task EstimateTokens_NullCharacterPrompt_IsRejectedBeforeAdmission(string prompt)
+    {
+        var coordinator = CreateCoordinator();
+        var service = CreateService(coordinator);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            service.EstimateTokens(
+                new EstimateTokensRequest { Prompt = prompt },
+                TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal("Prompt must not contain null characters.", ex.Status.Detail);
+        Assert.Equal(RuntimeErrorMetadata.InvalidArgumentCode, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorCodeTrailerName));
+        Assert.Equal(ex.Status.Detail, GetTrailerValue(ex, RuntimeErrorMetadata.ErrorMessageTrailerName));
+        coordinator.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task Generate_BlankInferenceOutput_ReturnsInternalError()
     {
