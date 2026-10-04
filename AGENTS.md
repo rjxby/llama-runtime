@@ -38,6 +38,7 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 - Build and package the runtime into `dist/`: `make pack`
 - Run the packaged gRPC runtime locally: `HostedModel__ModelPath=/absolute/path/to/model.gguf make llama-runtime-grpc-run`
 - Run managed tests: `dotnet test src/llama-runtime.slnx --no-restore`
+- Run managed quality checks: `make check`
 - Benchmark the gRPC runtime: `make bench-llama-runtime-grpc`
 - Run the upstream `llama.cpp` REST baseline: `make run-llama-rest-server`
 - Benchmark the REST baseline: `make bench-llama-rest`
@@ -106,6 +107,12 @@ Native-first, single-model gRPC inference runtime built on top of `llama.cpp`.
 ## Testing Expectations
 
 - Run focused checks while iterating, then run the required checks once at the end. Repeat them only after further changes or when investigating a failure.
-- For managed-only changes, start with `dotnet test src/llama-runtime.slnx --no-restore`.
+- Restore managed dependencies once with `dotnet restore src/llama-runtime.slnx`. Run the relevant test project or class while iterating, then run `make check` before finishing code changes. See [managed checks](README.md#managed-checks) for the checks and filter examples.
+- For bug fixes, demonstrate a regression test failing before the fix and passing afterward. If the failure cannot be reproduced, report that limitation.
+- Never remove, skip, or weaken an existing assertion merely to make a change pass.
+- Treat zero discovered tests as a failed check. Keep test category traits complete when using category filters.
+- Use synchronization signals in concurrency tests. Use timeouts to bound hangs, not delays to establish ordering.
+- Report verification commands, test counts, failures, and checks blocked by missing prerequisites.
+- Explain each new dependency or project reference.
 - For changes affecting packaging, startup, or native interop, also run the relevant `make` targets.
-- Native integration tests require vendored artifacts from `make init` and a valid GGUF referenced by `MODEL_PATH`.
+- Native integration tests require vendored artifacts from `make init` and a valid GGUF referenced by `MODEL_PATH`. Missing prerequisites mean native behavior is unverified, not passed.

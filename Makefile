@@ -109,7 +109,7 @@ PUBLISH_READY_TO_RUN ?= false
 # Phony targets
 # ------------------------------------------------------------
 .PHONY: \
-	all init verify pin-llama clean native-build \
+	all init verify pin-llama clean native-build check \
 	vendor/include vendor/binary \
 	native-integration-tests \
 	bench-llama-runtime-grpc bench-llama-rest \
@@ -243,6 +243,16 @@ native-build:
 native-integration-tests:
 	$(MAKE) native-build BUILD_TESTING=ON
 	cd "$(CMAKE_BUILD_DIR)" && ctest -C Release --output-on-failure
+
+# ------------------------------------------------------------
+# Managed checks (restore once before running)
+# ------------------------------------------------------------
+# MSBuild treats the exported native PLATFORM as its solution Platform.
+check:
+	env -u PLATFORM dotnet build src/llama-runtime.slnx -c Release --no-restore -warnaserror -p:EnforceCodeStyleInBuild=true
+	env -u PLATFORM dotnet test src/llama-runtime.slnx -c Release --no-build --no-restore -- RunConfiguration.TreatNoTestsAsError=true
+	env -u PLATFORM dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
+	git diff --check
 
 # ------------------------------------------------------------
 # REST server

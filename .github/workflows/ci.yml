@@ -20,6 +20,18 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
+    - name: Restore managed dependencies
+      run: dotnet restore src/llama-runtime.slnx
+
+    - name: Run managed quality checks
+      run: make check
+
+  native-build:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
     - name: Setup Cache for llama.cpp
       uses: actions/cache@v4
       with:
@@ -36,12 +48,3 @@ jobs:
 
     - name: Build Native Adapter
       run: make native-build
-
-    - name: Build .NET Solution
-      run: dotnet build src/llama-runtime.slnx -c Release
-
-    - name: Verify C# braces
-      run: dotnet format style src/llama-runtime.slnx --verify-no-changes --diagnostics IDE0011 --no-restore
-
-    - name: Run Managed Tests
-      run: dotnet test src/llama-runtime.slnx -c Release --no-build --verbosity normal

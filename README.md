@@ -120,6 +120,27 @@ See [benchmarking](docs/benchmarking.md) for settings, output formats, and invoc
 
 Use `make verify` to recheck cached dependencies. Maintainers can change the upstream pin with `make pin-llama LLAMA_VERSION=bNNNN`, which updates checksums, vendor artifacts, and tracked documentation together.
 
+## Managed checks
+
+Restore managed dependencies once, then run the quality checks after code changes:
+
+```bash
+dotnet restore src/llama-runtime.slnx
+make check
+```
+
+`make check` builds Release with warnings treated as errors and code style enforced, runs all managed tests with empty test runs treated as failures, verifies C# braces, and checks the working diff for whitespace errors. It stops at the first failure. Managed tests use a mocked native backend and do not require vendor downloads or a GGUF model.
+
+While iterating, run the relevant test project or class. For example:
+
+```bash
+dotnet test src/LlamaRuntime.Engine.Tests --no-restore \
+  --filter 'FullyQualifiedName~EngineModelTests' \
+  -- RunConfiguration.TreatNoTestsAsError=true
+```
+
+See [agent testing expectations](AGENTS.md#testing-expectations) for verification requirements. Native changes also require `make native-integration-tests MODEL_PATH=/absolute/path/to/model.gguf`; packaging and startup changes require the relevant build and runtime checks.
+
 ## Reference and contributing
 
 - [Architecture](docs/architecture.md) covers ownership, concurrency, lifecycle, and runtime contracts.
